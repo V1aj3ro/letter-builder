@@ -1,31 +1,23 @@
 <template>
   <AppLayout>
     <template #default>
-      <div v-if="initLoading" class="text-muted">Загрузка...</div>
+      <div v-if="initLoading" class="text-muted text-sm">Загрузка...</div>
       <template v-else>
 
-        <!-- Top bar -->
-        <div class="flex items-center gap-2 mb-3">
-          <div class="breadcrumbs" style="margin: 0;">
+        <!-- ── NEW LETTER: центрированная форма создания ─────────────────── -->
+        <template v-if="!letter">
+          <div class="breadcrumbs mb-4">
             <RouterLink to="/projects">Проекты</RouterLink>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="breadcrumb-sep"><polyline points="9 18 15 12 9 6"/></svg>
             <RouterLink v-if="project" :to="`/projects/${project.id}`">{{ project.name }}</RouterLink>
             <svg v-if="project" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="breadcrumb-sep"><polyline points="9 18 15 12 9 6"/></svg>
-            <span>{{ letter ? `Письмо №${letter.number}` : 'Новое письмо' }}</span>
+            <span>Новое письмо</span>
           </div>
-          <div class="ml-auto flex items-center gap-2">
-            <span class="save-status">{{ saveStatus }}</span>
-          </div>
-        </div>
 
-        <div class="editor-layout">
-
-          <!-- LEFT: compact form -->
-          <div class="editor-sidebar">
+          <div style="max-width:520px;">
+            <h1 class="page-title mb-4">Новое письмо</h1>
             <div class="card">
-
-              <!-- Project select (new letter only) -->
-              <div v-if="!route.query.project_id && !letter" class="form-group">
+              <div v-if="!route.query.project_id" class="form-group">
                 <label>Проект</label>
                 <select v-model="form.project_id" @change="onProjectChange">
                   <option :value="null">Выберите проект...</option>
@@ -33,160 +25,165 @@
                 </select>
               </div>
 
-              <!-- Recipient -->
               <div class="form-group">
                 <label>Адресат</label>
-                <div class="flex gap-2 items-center">
-                  <select v-model="form.recipient_id" :disabled="readonly" style="flex: 1;">
+                <div class="flex gap-2">
+                  <select v-model="form.recipient_id" style="flex:1;">
                     <option :value="null">— не выбран —</option>
                     <option v-for="r in projectRecipients" :key="r.id" :value="r.id">{{ r.name }}</option>
                   </select>
-                  <button
-                    v-if="!readonly"
-                    class="btn btn-secondary btn-sm btn-icon"
-                    @click="showAddRecipient = !showAddRecipient"
-                    title="Создать нового адресата"
-                  >
+                  <button class="btn btn-secondary btn-sm btn-icon" @click="showAddRecipient = !showAddRecipient" title="Добавить адресата">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                   </button>
                 </div>
-                <div v-if="showAddRecipient" class="flex gap-2 items-center mt-2">
-                  <input v-model="newRecipientName" placeholder="Название адресата" style="flex:1; padding:6px 9px; border:1px solid var(--border); border-radius:var(--r); font-size:13px; font-family:inherit;" />
+                <div v-if="showAddRecipient" class="flex gap-2 mt-2">
+                  <input v-model="newRecipientName" placeholder="Название адресата" style="flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:var(--r);font-size:13.5px;font-family:inherit;" />
                   <button class="btn btn-primary btn-sm" @click="createAndAddRecipient">Добавить</button>
                   <button class="btn btn-ghost btn-sm" @click="showAddRecipient = false">✕</button>
                 </div>
               </div>
 
-              <!-- Number + Date + Sender -->
-              <div class="flex gap-2">
-                <div class="form-group" style="flex: 0 0 72px;">
-                  <label>№</label>
-                  <input :value="letter?.number || '—'" readonly />
-                </div>
+              <div class="flex gap-3">
                 <div class="form-group flex-1">
                   <label>Дата</label>
-                  <input v-model="form.letter_date" type="date" :disabled="readonly" />
+                  <input v-model="form.letter_date" type="date" />
                 </div>
-                <div class="form-group" style="flex: 0 0 76px;">
-                  <label>Тип</label>
-                  <select v-model="form.sender_type" :disabled="readonly">
+                <div class="form-group" style="flex:0 0 90px;">
+                  <label>От кого</label>
+                  <select v-model="form.sender_type">
                     <option value="ooo">ООО</option>
                     <option value="ip">ИП</option>
                   </select>
                 </div>
               </div>
 
-              <!-- Subject -->
-              <div class="form-group" style="margin-bottom:0">
+              <div class="form-group" style="margin-bottom:0;">
                 <label>Тема письма</label>
-                <input
-                  v-model="form.subject"
-                  type="text"
-                  placeholder="О запросе коммерческого предложения"
-                  :disabled="readonly"
-                />
+                <input v-model="form.subject" type="text" placeholder="О запросе коммерческого предложения" />
               </div>
             </div>
 
-            <!-- Stale warning -->
-            <div v-if="docStale && letter" class="stale-banner">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; margin-top:1px;">
-                <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-              </svg>
-              Реквизиты изменились. Нажмите «Обновить», чтобы применить.
+            <div class="mt-3">
+              <button class="btn btn-primary" @click="saveDraft" :disabled="saving || !form.project_id" style="padding:10px 24px;">
+                {{ saving ? 'Создание...' : 'Создать и открыть редактор' }}
+              </button>
+            </div>
+          </div>
+        </template>
+
+        <!-- ── EXISTING LETTER: горизонтальная панель + редактор ─────────── -->
+        <template v-else>
+          <!-- Breadcrumbs -->
+          <div class="breadcrumbs mb-2">
+            <RouterLink to="/projects">Проекты</RouterLink>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="breadcrumb-sep"><polyline points="9 18 15 12 9 6"/></svg>
+            <RouterLink v-if="project" :to="`/projects/${project.id}`">{{ project.name }}</RouterLink>
+            <svg v-if="project" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="breadcrumb-sep"><polyline points="9 18 15 12 9 6"/></svg>
+            <span>Письмо №{{ letter.number }}</span>
+            <span class="ml-auto save-status">{{ saveStatus }}</span>
+          </div>
+
+          <!-- ── Горизонтальная форма ──────────────────────────────────── -->
+          <div class="letter-form-bar">
+            <!-- Адресат -->
+            <div class="lf-field lf-recipient">
+              <div class="lf-label">Адресат</div>
+              <div class="flex gap-1">
+                <select v-model="form.recipient_id" :disabled="readonly" class="lf-input">
+                  <option :value="null">— не выбран —</option>
+                  <option v-for="r in projectRecipients" :key="r.id" :value="r.id">{{ r.name }}</option>
+                </select>
+                <button v-if="!readonly" class="btn btn-secondary btn-sm btn-icon" @click="showAddRecipient = !showAddRecipient" title="Новый адресат">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                </button>
+              </div>
             </div>
 
-            <!-- Actions -->
-            <div class="card">
-              <div class="sidebar-actions">
-                <button
-                  v-if="!letter && !readonly"
-                  class="btn btn-primary"
-                  @click="saveDraft"
-                  :disabled="saving || !form.project_id"
-                  style="justify-content:center;"
-                >{{ saving ? 'Создание...' : 'Создать и открыть' }}</button>
+            <!-- Дата -->
+            <div class="lf-field" style="flex:0 0 140px;">
+              <div class="lf-label">Дата</div>
+              <input v-model="form.letter_date" type="date" :disabled="readonly" class="lf-input" />
+            </div>
 
-                <button
-                  v-if="letter && docStale && !readonly"
-                  class="btn btn-primary"
-                  @click="regenerateAndOpen"
-                  :disabled="editorLoading"
-                  style="justify-content:center;"
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.28-6.24"/></svg>
-                  {{ editorLoading ? 'Обновление...' : 'Обновить документ' }}
-                </button>
+            <!-- Тип -->
+            <div class="lf-field" style="flex:0 0 80px;">
+              <div class="lf-label">Тип</div>
+              <select v-model="form.sender_type" :disabled="readonly" class="lf-input">
+                <option value="ooo">ООО</option>
+                <option value="ip">ИП</option>
+              </select>
+            </div>
 
-                <button
-                  v-if="letter && !docStale && !readonly"
-                  class="btn btn-secondary"
-                  @click="saveMeta"
-                  :disabled="saving"
-                  style="justify-content:center;"
-                >{{ saving ? 'Сохранение...' : 'Сохранить' }}</button>
+            <!-- Тема -->
+            <div class="lf-field lf-subject">
+              <div class="lf-label">Тема</div>
+              <input v-model="form.subject" type="text" :disabled="readonly" class="lf-input" placeholder="О запросе коммерческого предложения" />
+            </div>
 
-                <div class="flex gap-2">
-                  <button class="btn btn-secondary flex-1" @click="downloadFile('docx')" :disabled="!letter" style="justify-content:center;">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                    DOCX
-                  </button>
-                  <button class="btn btn-secondary flex-1" @click="downloadFile('pdf')" :disabled="!letter" style="justify-content:center;">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                    PDF
-                  </button>
-                </div>
+            <!-- Разделитель -->
+            <div class="lf-sep"></div>
 
-                <button
-                  v-if="letter && letter.status === 'draft'"
-                  class="btn btn-secondary"
-                  @click="markSent"
-                  style="justify-content:center;"
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                  Отметить отправленным
-                </button>
-                <div v-if="letter?.status === 'sent'" style="text-align:center;">
-                  <span class="badge badge-sent">Отправлено</span>
-                </div>
-              </div>
+            <!-- Кнопки действий -->
+            <div class="lf-actions">
+              <!-- Stale: обновить -->
+              <button v-if="docStale && !readonly" class="btn btn-primary btn-sm" @click="regenerateAndOpen" :disabled="editorLoading" title="Реквизиты изменились — обновить документ">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.28-6.24"/></svg>
+                Обновить
+              </button>
+
+              <!-- Сохранить мета -->
+              <button v-if="!docStale && !readonly" class="btn btn-secondary btn-sm" @click="saveMeta" :disabled="saving">
+                {{ saving ? '...' : 'Сохранить' }}
+              </button>
+
+              <!-- Скачать -->
+              <button class="btn btn-secondary btn-sm" @click="downloadFile('docx')" title="Скачать DOCX">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                DOCX
+              </button>
+              <button class="btn btn-secondary btn-sm" @click="downloadFile('pdf')" title="Скачать PDF">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                PDF
+              </button>
+
+              <!-- Статус -->
+              <button v-if="letter.status === 'draft'" class="btn btn-secondary btn-sm" @click="markSent">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                Отправлено
+              </button>
+              <span v-else class="badge badge-sent">Отправлено</span>
             </div>
           </div>
 
-          <!-- RIGHT: OnlyOffice editor -->
-          <div class="editor-main">
-            <!-- No letter yet -->
-            <div v-if="!letter" class="editor-placeholder">
-              <div class="editor-placeholder-inner">
-                <div style="font-size: 2.5rem; margin-bottom: 12px;">📄</div>
-                <div style="font-weight: 600; margin-bottom: 6px;">Редактор документа</div>
-                <div class="text-muted text-sm">Заполните форму и нажмите<br>«Создать и открыть»</div>
-              </div>
-            </div>
+          <!-- Новый адресат inline -->
+          <div v-if="showAddRecipient" class="flex gap-2 mb-2">
+            <input v-model="newRecipientName" placeholder="Название нового адресата" style="flex:1;max-width:300px;padding:7px 10px;border:1px solid var(--border);border-radius:var(--r);font-size:13.5px;font-family:inherit;" />
+            <button class="btn btn-primary btn-sm" @click="createAndAddRecipient">Добавить</button>
+            <button class="btn btn-ghost btn-sm" @click="showAddRecipient = false">Отмена</button>
+          </div>
 
-            <!-- Loading -->
-            <div v-else-if="editorLoading" class="editor-loading">
+          <!-- ── Редактор ──────────────────────────────────────────────── -->
+          <div class="editor-full">
+            <div v-if="editorLoading" class="editor-loading">
               <div class="editor-loading-inner">
                 <div class="spinner"></div>
                 <div>Загрузка редактора...</div>
               </div>
             </div>
 
-            <!-- Error -->
             <div v-else-if="editorError" class="editor-loading">
-              <div class="editor-loading-inner" style="max-width: 360px; text-align: center;">
-                <div style="font-size: 2rem; margin-bottom: 8px;">⚠️</div>
-                <div style="font-weight: 600; margin-bottom: 8px; color: var(--color-text);">Редактор не загрузился</div>
-                <div class="text-muted text-sm" style="margin-bottom: 16px;">{{ editorError }}</div>
-                <button class="btn btn-primary" @click="openEditor">Попробовать снова</button>
+              <div class="editor-loading-inner">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <div class="error-title">Редактор не загрузился</div>
+                <div class="text-muted text-sm">{{ editorError }}</div>
+                <button class="btn btn-primary btn-sm" @click="openEditor">Попробовать снова</button>
               </div>
             </div>
 
-            <!-- OnlyOffice container — always in DOM once letter exists so the iframe has a stable element -->
-            <div v-show="letter && !editorLoading && !editorError" id="onlyoffice-container" class="onlyoffice-frame"></div>
+            <div v-show="!editorLoading && !editorError" id="onlyoffice-container" class="onlyoffice-frame"></div>
           </div>
+        </template>
 
-        </div>
       </template>
     </template>
   </AppLayout>

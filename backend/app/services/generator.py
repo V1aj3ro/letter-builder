@@ -17,6 +17,8 @@ Fallback path — programmatic (legacy):
   Builds the document from scratch when no template is uploaded.
   Layout: header (logo + org details) | footer (banner) | body sections.
 """
+import asyncio
+import logging
 import os
 import tempfile
 from datetime import date as date_type
@@ -27,6 +29,11 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
 from .html_to_docx import html_to_docx
+
+log = logging.getLogger(__name__)
+
+# Reference .docx for Pandoc — defines fonts, spacing, no-border table styles
+_REFERENCE_DOCX = os.path.join(os.path.dirname(__file__), '..', 'reference.docx')
 
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/app/uploads")
 
@@ -46,22 +53,106 @@ def _emu_to_twips(emu: int) -> int:
 
 # ── Template-based generation ─────────────────────────────────────────────────
 
-def _init_body_doc_styles(doc):
-    """Apply Roboto font + correct spacing to all relevant styles in the body sub-doc."""
-    for style_name in ("Normal", "Default Paragraph Font",
-                       "List Bullet", "List Number",
-                       "List Bullet 2", "List Number 2"):
+async def _build_body_subdoc(html: str, tpl, content_width: int):
+    """
+    Convert HTML body to a docxtpl Subdoc.
+    Primary: Pandoc + reference.docx  →  faithful WYSIWYG output.
+    Fallback: custom html_to_docx     →  used if Pandoc is unavailable.
+    Returns (subdoc_object, tmp_path_to_delete_after_render).
+    """
+    if not html:
+        return "", None
+
+    tmp_path: str | None = None
+    try:
+        tmp_path = await _pandoc_convert(html)
+        _remove_table_borders(tmp_path)
+        subdoc = tpl.new_subdoc(tmp_path)
+        return subdoc, tmp_path
+    except Exception as exc:
+        log.warning("Pandoc unavailable (%s), falling back to html_to_docx", exc)
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+
+    # ── Fallback ─────────────────────────────────────────────────────────────
+    body_doc = Document()
+    for sn in ("Normal", "List Bullet", "List Number",
+               "List Bullet 2", "List Number 2"):
         try:
-            s = doc.styles[style_name]
+            s = body_doc.styles[sn]
             s.font.name = "Roboto"
             s.font.size = Pt(11)
         except KeyError:
             pass
-    normal = doc.styles["Normal"]
-    normal.paragraph_format.space_before = Pt(0)
-    normal.paragraph_format.space_after  = Pt(6)
+    normal = body_doc.styles["Normal"]
+    normal.paragraph_format.space_before = Pt(12)
+    normal.paragraph_format.space_after  = Pt(12)
     normal.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
 
+    html_to_docx(html, body_doc, content_width,
+                 font_name="Roboto", font_size_pt=11.0,
+                 space_before_pt=12.0, space_after_pt=12.0)
+
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix=".docx")
+    os.close(tmp_fd)
+    body_doc.save(tmp_path)
+    return tpl.new_subdoc(tmp_path), tmp_path
+
+
+async def _pandoc_convert(html: str) -> str:
+    """Run Pandoc HTML→DOCX. Returns path to the output temp file."""
+    tmp_html_fd, tmp_html = tempfile.mkstemp(suffix=".html")
+    tmp_docx_fd, tmp_docx = tempfile.mkstemp(suffix=".docx")
+    os.close(tmp_html_fd)
+    os.close(tmp_docx_fd)
+    try:
+        with open(tmp_html, "w", encoding="utf-8") as f:
+            f.write(f'<html><head><meta charset="utf-8"></head>'
+                    f'<body>{html}</body></html>')
+
+        cmd = ["pandoc", "-f", "html", "-t", "docx", "-o", tmp_docx, tmp_html]
+        if os.path.exists(_REFERENCE_DOCX):
+            cmd += ["--reference-doc", _REFERENCE_DOCX]
+
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+        if proc.returncode != 0:
+            raise RuntimeError(stderr.decode(errors="replace"))
+
+        return tmp_docx
+    finally:
+        if os.path.exists(tmp_html):
+            os.unlink(tmp_html)
+
+
+def _remove_table_borders(docx_path: str) -> None:
+    """Strip all borders from every table in a .docx file (in-place)."""
+    doc = Document(docx_path)
+    for table in doc.tables:
+        tblPr = table._tbl.find(qn("w:tblPr"))
+        if tblPr is None:
+            tblPr = OxmlElement("w:tblPr")
+            table._tbl.insert(0, tblPr)
+        for old in tblPr.findall(qn("w:tblBorders")):
+            tblPr.remove(old)
+        bdr = OxmlElement("w:tblBorders")
+        for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
+            t = OxmlElement(f"w:{edge}")
+            t.set(qn("w:val"), "none")
+            bdr.append(t)
+        tblPr.append(bdr)
+        for row in table.rows:
+            for cell in row.cells:
+                tcPr = cell._tc.find(qn("w:tcPr"))
+                if tcPr is None:
+                    continue
+                for old in tcPr.findall(qn("w:tcBorders")):
+                    tcPr.remove(old)
+    doc.save(docx_path)
 
 
 async def _generate_from_template(letter, org, template_path: str) -> str:
@@ -69,25 +160,10 @@ async def _generate_from_template(letter, org, template_path: str) -> str:
 
     tpl = DocxTemplate(template_path)
 
-    # Derive content width (twips) from the template's section for table sizing
-    base_doc = Document(template_path)
-    sec = base_doc.sections[0]
+    sec = Document(template_path).sections[0]
     content_width = _emu_to_twips(sec.page_width - sec.left_margin - sec.right_margin)
 
-    # Build body sub-document from HTML
-    tmp_path = None
-    body_sd: object = ""
-    if letter.body:
-        body_doc = Document()
-        # Match the template's font and spacing
-        _init_body_doc_styles(body_doc)
-        html_to_docx(letter.body, body_doc, content_width,
-                     font_name="Roboto", font_size_pt=11.0,
-                     space_before_pt=12.0, space_after_pt=12.0)
-        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".docx")
-        os.close(tmp_fd)
-        body_doc.save(tmp_path)
-        body_sd = tpl.new_subdoc(tmp_path)
+    body_sd, tmp_path = await _build_body_subdoc(letter.body or "", tpl, content_width)
 
     sender = getattr(letter, "sender_type", "ooo")
 

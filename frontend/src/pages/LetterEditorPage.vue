@@ -86,15 +86,51 @@
                 <label>Текст письма</label>
                 <div class="tiptap-editor">
                   <div class="tiptap-toolbar" v-if="!readonly">
-                    <button @click="editor?.chain().focus().toggleBold().run()" :class="{ 'is-active': editor?.isActive('bold') }"><b>B</b></button>
-                    <button @click="editor?.chain().focus().toggleItalic().run()" :class="{ 'is-active': editor?.isActive('italic') }"><i>I</i></button>
-                    <button @click="editor?.chain().focus().toggleBulletList().run()" :class="{ 'is-active': editor?.isActive('bulletList') }">• UL</button>
-                    <button @click="editor?.chain().focus().toggleOrderedList().run()" :class="{ 'is-active': editor?.isActive('orderedList') }">1. OL</button>
-                    <button @click="insertTable">⊞ Таблица</button>
-                    <button @click="editor?.chain().focus().addRowAfter().run()">+ Строка</button>
-                    <button @click="editor?.chain().focus().deleteRow().run()">− Строка</button>
-                    <button @click="editor?.chain().focus().addColumnAfter().run()">+ Столб</button>
-                    <button @click="editor?.chain().focus().deleteColumn().run()">− Столб</button>
+                    <!-- Formatting group -->
+                    <button
+                      @click="editor?.chain().focus().toggleBold().run()"
+                      :class="{ 'is-active': editor?.isActive('bold') }"
+                      title="Жирный (Ctrl+B)"
+                    ><b>B</b></button>
+                    <button
+                      @click="editor?.chain().focus().toggleItalic().run()"
+                      :class="{ 'is-active': editor?.isActive('italic') }"
+                      title="Курсив (Ctrl+I)"
+                    ><i>I</i></button>
+                    <button
+                      @click="editor?.chain().focus().toggleUnderline().run()"
+                      :class="{ 'is-active': editor?.isActive('underline') }"
+                      title="Подчёркнутый (Ctrl+U)"
+                    ><u>U</u></button>
+
+                    <span class="toolbar-sep"></span>
+
+                    <!-- Lists group -->
+                    <button
+                      @click="editor?.chain().focus().toggleBulletList().run()"
+                      :class="{ 'is-active': editor?.isActive('bulletList') }"
+                      title="Маркированный список"
+                    >☰ Список</button>
+                    <button
+                      @click="editor?.chain().focus().toggleOrderedList().run()"
+                      :class="{ 'is-active': editor?.isActive('orderedList') }"
+                      title="Нумерованный список"
+                    >1. Список</button>
+
+                    <span class="toolbar-sep"></span>
+
+                    <!-- Table group -->
+                    <button @click="insertTable" title="Вставить таблицу 3×3">⊞ Таблица</button>
+
+                    <!-- Contextual table editing (shown only when cursor is inside a table) -->
+                    <template v-if="isInTable">
+                      <span class="toolbar-sep"></span>
+                      <button @click="editor?.chain().focus().addRowAfter().run()" title="Добавить строку ниже">+ Строка</button>
+                      <button @click="editor?.chain().focus().deleteRow().run()" title="Удалить текущую строку">− Строка</button>
+                      <button @click="editor?.chain().focus().addColumnAfter().run()" title="Добавить столбец правее">+ Столбец</button>
+                      <button @click="editor?.chain().focus().deleteColumn().run()" title="Удалить текущий столбец">− Столбец</button>
+                      <button @click="editor?.chain().focus().deleteTable().run()" title="Удалить таблицу" class="btn-danger-toolbar">✕ Таблица</button>
+                    </template>
                   </div>
                   <EditorContent :editor="editor" />
                 </div>
@@ -217,6 +253,7 @@ import Paragraph from '@tiptap/extension-paragraph'
 import Text from '@tiptap/extension-text'
 import Bold from '@tiptap/extension-bold'
 import Italic from '@tiptap/extension-italic'
+import Underline from '@tiptap/extension-underline'
 import BulletList from '@tiptap/extension-bullet-list'
 import OrderedList from '@tiptap/extension-ordered-list'
 import ListItem from '@tiptap/extension-list-item'
@@ -263,6 +300,9 @@ const form = reactive({
 const org = computed(() => orgStore.org)
 const allProjects = computed(() => projectsStore.projects)
 const readonly = computed(() => letter.value?.status === 'sent')
+const isInTable = computed(() =>
+  editor.value?.isActive('tableCell') || editor.value?.isActive('tableHeader') || false
+)
 
 const projectRecipients = computed(() => {
   if (!project.value) return recipientsStore.recipients
@@ -281,7 +321,7 @@ const selectedRecipient = computed(() =>
 // Tiptap editor
 const editor = useEditor({
   extensions: [
-    Document, Paragraph, Text, Bold, Italic,
+    Document, Paragraph, Text, Bold, Italic, Underline,
     BulletList, OrderedList, ListItem,
     Table.configure({ resizable: true }),
     TableRow, TableCell, TableHeader,

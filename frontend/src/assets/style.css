@@ -448,6 +448,24 @@ table.data-table tr:last-child td { border-bottom: none; }
   color: #fff !important;
   border-color: var(--color-primary);
 }
+.tiptap-toolbar .btn-danger-toolbar {
+  color: #c0392b !important;
+  border-color: #e8b4b0 !important;
+}
+.tiptap-toolbar .btn-danger-toolbar:hover {
+  background: #c0392b !important;
+  border-color: #c0392b !important;
+  color: #fff !important;
+}
+.toolbar-sep {
+  display: inline-block;
+  width: 1px;
+  height: 20px;
+  background: var(--color-border);
+  margin: 0 4px;
+  align-self: center;
+  flex-shrink: 0;
+}
 
 /* Editor layout */
 .editor-layout {

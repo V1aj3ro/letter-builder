@@ -6,6 +6,7 @@ from bs4 import BeautifulSoup, NavigableString, Tag
 from docx import Document
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
+from docx.shared import RGBColor
 
 
 def _add_run_with_formatting(paragraph, text: str, bold: bool = False, italic: bool = False):
@@ -15,17 +16,21 @@ def _add_run_with_formatting(paragraph, text: str, bold: bool = False, italic: b
     return run
 
 
-def _process_inline(element, paragraph, bold=False, italic=False):
+def _process_inline(element, paragraph, bold=False, italic=False, link=False):
     """Recursively process inline elements into a paragraph."""
     if isinstance(element, NavigableString):
         text = str(element)
         if text:
-            _add_run_with_formatting(paragraph, text, bold=bold, italic=italic)
+            run = _add_run_with_formatting(paragraph, text, bold=bold, italic=italic)
+            if link:
+                run.font.color.rgb = RGBColor(0x05, 0x63, 0xC1)
+                run.font.underline = True
     elif isinstance(element, Tag):
-        is_bold = bold or element.name in ("strong", "b")
+        is_bold   = bold   or element.name in ("strong", "b")
         is_italic = italic or element.name in ("em", "i")
+        is_link   = link   or element.name == "a"
         for child in element.children:
-            _process_inline(child, paragraph, bold=is_bold, italic=is_italic)
+            _process_inline(child, paragraph, bold=is_bold, italic=is_italic, link=is_link)
 
 
 def _clear_borders(obj_tbl_or_cell, is_cell: bool = False):
@@ -49,17 +54,52 @@ def _clear_borders(obj_tbl_or_cell, is_cell: bool = False):
     pPr.append(borders)
 
 
-def _set_table_width(table, width_twips: int):
-    """Force table to an exact width (in twips/dxa)."""
+def _apply_table_layout(table, content_width: int, max_cols: int):
+    """
+    Set exact table width and equal column widths via tblGrid + per-cell tcW.
+    Avoids python-docx's unreliable table.columns iterator.
+    """
+    col_width = content_width // max_cols
+
     tbl = table._tbl
+
+    # 1. tblPr → tblW (overall table width)
     tblPr = tbl.find(qn("w:tblPr"))
     if tblPr is None:
         tblPr = OxmlElement("w:tblPr")
         tbl.insert(0, tblPr)
     tblW = OxmlElement("w:tblW")
-    tblW.set(qn("w:w"), str(width_twips))
+    tblW.set(qn("w:w"), str(content_width))
     tblW.set(qn("w:type"), "dxa")
     tblPr.append(tblW)
+
+    # 2. tblGrid — defines the column count and default widths
+    tblGrid = tbl.find(qn("w:tblGrid"))
+    if tblGrid is None:
+        tblGrid = OxmlElement("w:tblGrid")
+        tbl.append(tblGrid)
+    # Update existing gridCols, or create them
+    existing = tblGrid.findall(qn("w:gridCol"))
+    for i in range(max_cols):
+        if i < len(existing):
+            existing[i].set(qn("w:w"), str(col_width))
+        else:
+            gc = OxmlElement("w:gridCol")
+            gc.set(qn("w:w"), str(col_width))
+            tblGrid.append(gc)
+
+    # 3. Per-cell tcW — must be set on every cell individually
+    for row in table.rows:
+        for cell in row.cells:
+            tc = cell._tc
+            tcPr = tc.get_or_add_tcPr()
+            # Remove stale tcW if any
+            for old in tcPr.findall(qn("w:tcW")):
+                tcPr.remove(old)
+            tcW = OxmlElement("w:tcW")
+            tcW.set(qn("w:w"), str(col_width))
+            tcW.set(qn("w:type"), "dxa")
+            tcPr.append(tcW)
 
 
 def _process_table(tag: Tag, document: Document, content_width: int | None = None):
@@ -75,11 +115,7 @@ def _process_table(tag: Tag, document: Document, content_width: int | None = Non
     _clear_borders(table)
 
     if content_width:
-        _set_table_width(table, content_width)
-        col_width = content_width // max_cols
-        for col in table.columns:
-            for cell in col.cells:
-                cell.width = col_width
+        _apply_table_layout(table, content_width, max_cols)
 
     for i, row_tag in enumerate(rows):
         cells = row_tag.find_all(["td", "th"])

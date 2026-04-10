@@ -189,6 +189,9 @@ def _build_footer(section, org):
 
     para = footer.paragraphs[0]
     para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    # Strip inherited spacing so the footer height equals exactly the image height
+    para.paragraph_format.space_before = Pt(0)
+    para.paragraph_format.space_after  = Pt(0)
     # Shift paragraph to the left page edge
     pPr = para._p.get_or_add_pPr()
     ind = OxmlElement("w:ind")

@@ -5,7 +5,6 @@ from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
-from typing import List
 from ..database import get_db
 from ..models import Letter, Project, Recipient
 from ..schemas import LetterCreate, LetterUpdate, LetterStatusUpdate, LetterOut
@@ -36,7 +35,7 @@ async def _get_letter(letter_id: int, db: AsyncSession) -> Letter:
     return letter
 
 
-@router.get("", response_model=List[LetterOut])
+@router.get("", response_model=list[LetterOut])
 async def list_letters(
     project_id: int = Query(...),
     db: AsyncSession = Depends(get_db),

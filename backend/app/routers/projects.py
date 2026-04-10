@@ -2,7 +2,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
-from typing import List
 from ..database import get_db
 from ..models import Project, ProjectRecipient, Recipient, Letter
 from ..schemas import (
@@ -15,7 +14,7 @@ from ..models import User
 router = APIRouter()
 
 
-@router.get("", response_model=List[ProjectOut])
+@router.get("", response_model=list[ProjectOut])
 async def list_projects(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_approved_user),

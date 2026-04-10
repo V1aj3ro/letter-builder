@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from typing import List
 from ..database import get_db
 from ..models import User
 from ..schemas import UserOut, UserRoleUpdate
@@ -10,7 +9,7 @@ from ..dependencies import get_admin_user
 router = APIRouter()
 
 
-@router.get("", response_model=List[UserOut])
+@router.get("", response_model=list[UserOut])
 async def list_users(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_admin_user),

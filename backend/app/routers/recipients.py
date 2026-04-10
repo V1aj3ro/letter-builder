@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from typing import List
 from ..database import get_db
 from ..models import Recipient
 from ..schemas import RecipientCreate, RecipientUpdate, RecipientOut
@@ -11,7 +10,7 @@ from ..models import User
 router = APIRouter()
 
 
-@router.get("", response_model=List[RecipientOut])
+@router.get("", response_model=list[RecipientOut])
 async def list_recipients(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_approved_user),

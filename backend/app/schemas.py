@@ -1,5 +1,4 @@
 from datetime import datetime, date
-from typing import Optional, List
 from pydantic import BaseModel, EmailStr
 
 
@@ -29,8 +28,8 @@ class UserOut(BaseModel):
     id: int
     email: str
     full_name: str
-    position: Optional[str]
-    phone: Optional[str]
+    position: str | None
+    phone: str | None
     is_admin: bool
     is_approved: bool
     created_at: datetime
@@ -39,9 +38,9 @@ class UserOut(BaseModel):
 
 
 class ProfileUpdate(BaseModel):
-    full_name: Optional[str] = None
-    position: Optional[str] = None
-    phone: Optional[str] = None
+    full_name: str | None = None
+    position: str | None = None
+    phone: str | None = None
 
 
 class PasswordChange(BaseModel):
@@ -82,39 +81,39 @@ class OrganizationOut(BaseModel):
     ip_signer_name: str
     ip_signer_role: str
     # Файлы
-    logo_path: Optional[str]
-    footer_banner_path: Optional[str]
-    signature_path: Optional[str]
+    logo_path: str | None
+    footer_banner_path: str | None
+    signature_path: str | None
 
     model_config = {"from_attributes": True}
 
 
 class OrganizationUpdate(BaseModel):
     # ООО
-    name: Optional[str] = None
-    short_name: Optional[str] = None
-    inn: Optional[str] = None
-    ogrn: Optional[str] = None
-    legal_address: Optional[str] = None
-    bank_name: Optional[str] = None
-    bik: Optional[str] = None
-    account: Optional[str] = None
-    corr_account: Optional[str] = None
-    phone: Optional[str] = None
-    signer_name: Optional[str] = None
-    signer_role: Optional[str] = None
+    name: str | None = None
+    short_name: str | None = None
+    inn: str | None = None
+    ogrn: str | None = None
+    legal_address: str | None = None
+    bank_name: str | None = None
+    bik: str | None = None
+    account: str | None = None
+    corr_account: str | None = None
+    phone: str | None = None
+    signer_name: str | None = None
+    signer_role: str | None = None
     # ИП
-    ip_full_name: Optional[str] = None
-    ip_inn: Optional[str] = None
-    ip_ogrnip: Optional[str] = None
-    ip_legal_address: Optional[str] = None
-    ip_bank_name: Optional[str] = None
-    ip_bik: Optional[str] = None
-    ip_account: Optional[str] = None
-    ip_corr_account: Optional[str] = None
-    ip_phone: Optional[str] = None
-    ip_signer_name: Optional[str] = None
-    ip_signer_role: Optional[str] = None
+    ip_full_name: str | None = None
+    ip_inn: str | None = None
+    ip_ogrnip: str | None = None
+    ip_legal_address: str | None = None
+    ip_bank_name: str | None = None
+    ip_bik: str | None = None
+    ip_account: str | None = None
+    ip_corr_account: str | None = None
+    ip_phone: str | None = None
+    ip_signer_name: str | None = None
+    ip_signer_role: str | None = None
 
 
 # --- Recipient ---
@@ -148,7 +147,7 @@ class ProjectOut(BaseModel):
     name: str
     created_by: int
     created_at: datetime
-    default_recipient: Optional[RecipientOut] = None
+    default_recipient: RecipientOut | None = None
     letter_count: int = 0
 
     model_config = {"from_attributes": True}
@@ -159,8 +158,8 @@ class ProjectDetailOut(BaseModel):
     name: str
     created_by: int
     created_at: datetime
-    default_recipient: Optional[RecipientOut] = None
-    recipients: List[RecipientOut] = []
+    default_recipient: RecipientOut | None = None
+    recipients: list[RecipientOut] = []
 
     model_config = {"from_attributes": True}
 
@@ -176,19 +175,19 @@ class DefaultRecipientUpdate(BaseModel):
 # --- Letter ---
 class LetterCreate(BaseModel):
     project_id: int
-    recipient_id: Optional[int] = None
-    subject: Optional[str] = None
-    body: Optional[str] = None
-    letter_date: Optional[date] = None
+    recipient_id: int | None = None
+    subject: str | None = None
+    body: str | None = None
+    letter_date: date | None = None
     sender_type: str = "ooo"
 
 
 class LetterUpdate(BaseModel):
-    recipient_id: Optional[int] = None
-    subject: Optional[str] = None
-    body: Optional[str] = None
-    letter_date: Optional[date] = None
-    sender_type: Optional[str] = None
+    recipient_id: int | None = None
+    subject: str | None = None
+    body: str | None = None
+    letter_date: date | None = None
+    sender_type: str | None = None
 
 
 class LetterStatusUpdate(BaseModel):
@@ -200,17 +199,17 @@ class LetterOut(BaseModel):
     number: int
     letter_date: date
     project_id: int
-    recipient_id: Optional[int]
+    recipient_id: int | None
     created_by: int
-    subject: Optional[str]
-    body: Optional[str]
+    subject: str | None
+    body: str | None
     sender_type: str
     status: str
-    docx_path: Optional[str]
-    pdf_path: Optional[str]
+    docx_path: str | None
+    pdf_path: str | None
     created_at: datetime
-    sent_at: Optional[datetime]
-    recipient: Optional[RecipientOut] = None
-    creator: Optional[UserOut] = None
+    sent_at: datetime | None
+    recipient: RecipientOut | None = None
+    creator: UserOut | None = None
 
     model_config = {"from_attributes": True}

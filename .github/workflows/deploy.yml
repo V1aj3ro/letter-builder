@@ -1,0 +1,40 @@
+name: Deploy to CorpCore
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+
+            if [ ! -d "/home/admen/corpcore/letter-builder" ]; then
+              git clone https://github.com/V1aj3ro/letter-builder.git /home/admen/corpcore/letter-builder
+            fi
+
+            cd /home/admen/corpcore/letter-builder
+
+            git fetch origin main
+            git reset --hard origin/main
+
+            if [ ! -f ".env" ]; then
+              echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" > .env
+              echo "SECRET_KEY=${{ secrets.SECRET_KEY }}" >> .env
+            fi
+
+            docker compose build --no-cache
+            docker compose up -d --remove-orphans
+
+            sleep 5
+            docker compose ps

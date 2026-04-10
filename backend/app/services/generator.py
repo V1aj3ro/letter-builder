@@ -83,7 +83,7 @@ async def _generate_from_template(letter, org, template_path: str) -> str:
         _init_body_doc_styles(body_doc)
         html_to_docx(letter.body, body_doc, content_width,
                      font_name="Roboto", font_size_pt=11.0,
-                     space_before_pt=0.0, space_after_pt=12.0)
+                     space_before_pt=12.0, space_after_pt=12.0)
         tmp_fd, tmp_path = tempfile.mkstemp(suffix=".docx")
         os.close(tmp_fd)
         body_doc.save(tmp_path)

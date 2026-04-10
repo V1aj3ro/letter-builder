@@ -152,8 +152,18 @@
               </div>
             </div>
 
+            <!-- Error -->
+            <div v-else-if="editorError" class="editor-loading">
+              <div class="editor-loading-inner" style="max-width: 360px; text-align: center;">
+                <div style="font-size: 2rem; margin-bottom: 8px;">⚠️</div>
+                <div style="font-weight: 600; margin-bottom: 8px; color: var(--color-text);">Редактор не загрузился</div>
+                <div class="text-muted text-sm" style="margin-bottom: 16px;">{{ editorError }}</div>
+                <button class="btn btn-primary" @click="openEditor">Попробовать снова</button>
+              </div>
+            </div>
+
             <!-- OnlyOffice container — always in DOM once letter exists so the iframe has a stable element -->
-            <div v-show="letter && !editorLoading" id="onlyoffice-container" class="onlyoffice-frame"></div>
+            <div v-show="letter && !editorLoading && !editorError" id="onlyoffice-container" class="onlyoffice-frame"></div>
           </div>
 
         </div>
@@ -189,6 +199,7 @@ const initLoading  = ref(true)
 const saving       = ref(false)
 const saveStatus   = ref('')
 const editorLoading = ref(false)
+const editorError   = ref('')
 const showAddRecipient = ref(false)
 const newRecipientName = ref('')
 
@@ -267,7 +278,18 @@ function destroyEditor() {
 async function openEditor() {
   if (!letter.value) return
   editorLoading.value = true
+  editorError.value   = ''
   destroyEditor()
+
+  // Safety timeout — if onDocumentReady never fires in 45s, show error
+  let readyTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+    if (editorLoading.value) {
+      editorLoading.value = false
+      editorError.value = 'Превышено время ожидания. Убедитесь, что переменная APP_PUBLIC_URL прописана в .env на сервере и указывает на публичный адрес приложения (например https://letters.demo.corpcore.ru).'
+    }
+  }, 45_000)
+
+  const clearTimer = () => { if (readyTimer) { clearTimeout(readyTimer); readyTimer = null } }
 
   try {
     // Fetch editor config (this also regenerates the .docx)
@@ -285,18 +307,26 @@ async function openEditor() {
       height: '100%',
       events: {
         onDocumentReady() {
+          clearTimer()
           editorLoading.value = false
         },
         onError(event: any) {
+          clearTimer()
           console.error('OnlyOffice error', event)
+          editorLoading.value = false
+          editorError.value = `Ошибка OnlyOffice: ${JSON.stringify(event?.data ?? event)}`
+        },
+        onRequestClose() {
+          clearTimer()
           editorLoading.value = false
         },
       },
     })
-  } catch (err) {
+  } catch (err: any) {
+    clearTimer()
     console.error('Failed to open OnlyOffice editor:', err)
-    saveStatus.value = 'Ошибка загрузки редактора'
     editorLoading.value = false
+    editorError.value = err?.message ?? 'Не удалось загрузить редактор'
   }
 }
 

@@ -180,7 +180,12 @@ def _build_header(section, org, sender_type: str):
 
 
 def _build_footer(section, org):
-    """Fill footer with the banner image spanning full content width."""
+    """
+    Fill footer with an ANCHORED banner image (like the reference document).
+
+    Using wp:anchor + wrapNone means the paragraph itself has near-zero height,
+    so the footer zone stays minimal.  The image floats at the page bottom.
+    """
     if not (org and org.footer_banner_path and os.path.exists(org.footer_banner_path)):
         return
 
@@ -189,18 +194,84 @@ def _build_footer(section, org):
 
     para = footer.paragraphs[0]
     para.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    # Strip inherited spacing so the footer height equals exactly the image height
-    para.paragraph_format.space_before = Pt(0)
-    para.paragraph_format.space_after  = Pt(0)
-    # Shift paragraph to the left page edge
+
+    # Collapse the paragraph to near-zero height via XML spacing
     pPr = para._p.get_or_add_pPr()
-    ind = OxmlElement("w:ind")
-    ind.set(qn("w:left"),  str(-_emu_to_twips(section.left_margin)))
-    ind.set(qn("w:right"), str(-_emu_to_twips(section.right_margin)))
-    pPr.append(ind)
-    # Fix dimensions to match reference: 20.97 × 3.79 cm
+    sp_elem = OxmlElement("w:spacing")
+    sp_elem.set(qn("w:before"), "0")
+    sp_elem.set(qn("w:after"),  "0")
+    pPr.append(sp_elem)
+
+    # ── Step 1: add picture inline so python-docx registers the relationship ──
     run = para.add_run()
     run.add_picture(org.footer_banner_path, width=Cm(20.97), height=Cm(3.79))
+
+    # ── Step 2: convert the inline drawing to an anchored (floating) drawing ──
+    r_elem  = run._r
+    drawing = r_elem.find(qn("w:drawing"))
+    if drawing is None:
+        return
+    inline = drawing.find(qn("wp:inline"))
+    if inline is None:
+        return
+
+    # Grab child elements we need to transplant
+    extent  = inline.find(qn("wp:extent"))
+    effect  = inline.find(qn("wp:effectExtent"))
+    docPr   = inline.find(qn("wp:docPr"))
+    cNvGFP  = inline.find(qn("wp:cNvGraphicFramePr"))
+    graphic = inline.find(qn("a:graphic"))
+
+    # Build the anchor element (matches reference doc structure)
+    anchor = OxmlElement("wp:anchor")
+    anchor.set("distT", "0")
+    anchor.set("distB", "0")
+    anchor.set("distL", "0")
+    anchor.set("distR", "0")
+    anchor.set("simplePos",    "0")
+    anchor.set("relativeHeight", "251653120")
+    anchor.set("behindDoc",    "0")
+    anchor.set("locked",       "0")
+    anchor.set("layoutInCell", "1")
+    anchor.set("allowOverlap", "0")
+
+    # Required simplePos placeholder
+    sp_pos = OxmlElement("wp:simplePos")
+    sp_pos.set("x", "0"); sp_pos.set("y", "0")
+    anchor.append(sp_pos)
+
+    # Horizontal: shift left by left_margin (EMU) so image starts at page edge
+    posH = OxmlElement("wp:positionH")
+    posH.set("relativeFrom", "column")
+    oh = OxmlElement("wp:posOffset")
+    oh.text = str(-int(section.left_margin))   # section.left_margin is in EMU
+    posH.append(oh)
+    anchor.append(posH)
+
+    # Vertical: start at the top of the footer paragraph
+    posV = OxmlElement("wp:positionV")
+    posV.set("relativeFrom", "paragraph")
+    ov = OxmlElement("wp:posOffset")
+    ov.text = "0"
+    posV.append(ov)
+    anchor.append(posV)
+
+    # Transplant inline children in OOXML-required order:
+    # extent → effectExtent → wrapNone → docPr → cNvGraphicFramePr → graphic
+    for child in (extent, effect):
+        if child is not None:
+            anchor.append(child)
+
+    wn = OxmlElement("wp:wrapNone")
+    anchor.append(wn)
+
+    for child in (docPr, cNvGFP, graphic):
+        if child is not None:
+            anchor.append(child)
+
+    # Swap inline ↔ anchor
+    drawing.remove(inline)
+    drawing.append(anchor)
 
 
 async def generate_letter_docx(letter, org) -> str:
@@ -224,7 +295,7 @@ async def generate_letter_docx(letter, org) -> str:
     style.font.name = "Roboto"
     style.font.size = Pt(11)
     style.paragraph_format.space_before = Pt(0)
-    style.paragraph_format.space_after  = Pt(0)
+    style.paragraph_format.space_after  = Pt(6)
     style.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
 
     sender = getattr(letter, "sender_type", "ooo")

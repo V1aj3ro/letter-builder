@@ -2,6 +2,7 @@
 Convert Tiptap HTML to python-docx elements.
 Supports: p, strong, em, ul, ol, li, table/tr/td/th.
 """
+import re
 from bs4 import BeautifulSoup, NavigableString, Tag
 from docx import Document
 from docx.oxml.ns import qn
@@ -54,16 +55,96 @@ def _clear_borders(obj_tbl_or_cell, is_cell: bool = False):
     pPr.append(borders)
 
 
-def _apply_table_layout(table, content_width: int, max_cols: int):
+def _extract_col_widths_px(tag: Tag, max_cols: int) -> list[float] | None:
     """
-    Set exact table width and equal column widths via tblGrid + per-cell tcW.
-    Avoids python-docx's unreliable table.columns iterator.
+    Try to extract per-column pixel widths from Tiptap table HTML.
+    Returns a list of floats (px) or None if no usable info found.
+
+    Tiptap serialises column widths as:
+      - colwidth="NNN" attribute on <td>/<th>  (primary)
+      - style="min-width: NNNpx" on <td>/<th>  (fallback)
+      - <colgroup><col style="width: NNNpx">    (fallback)
     """
-    col_width = content_width // max_cols
+    rows = tag.find_all("tr")
+    if not rows:
+        return None
+
+    first_row = rows[0]
+    cells = first_row.find_all(["td", "th"])
+
+    widths: list[float | None] = []
+    for cell in cells[:max_cols]:
+        # Tiptap custom attribute
+        cw = cell.get("colwidth")
+        if cw:
+            try:
+                widths.append(float(cw))
+                continue
+            except ValueError:
+                pass
+        # Inline style
+        style = cell.get("style", "")
+        m = re.search(r"(?:min-)?width:\s*([\d.]+)px", style)
+        if m:
+            widths.append(float(m.group(1)))
+            continue
+        widths.append(None)
+
+    # Fallback: <colgroup><col>
+    if all(w is None for w in widths):
+        colgroup = tag.find("colgroup")
+        if colgroup:
+            cols = colgroup.find_all("col")
+            widths = []
+            for col in cols[:max_cols]:
+                style = col.get("style", "")
+                attr  = col.get("width", "")
+                m = re.search(r"(?:min-)?width:\s*([\d.]+)px", style)
+                if m:
+                    widths.append(float(m.group(1)))
+                elif attr:
+                    try:
+                        widths.append(float(attr.replace("px", "").strip()))
+                    except ValueError:
+                        widths.append(None)
+                else:
+                    widths.append(None)
+
+    # Pad to max_cols
+    while len(widths) < max_cols:
+        widths.append(None)
+    widths = widths[:max_cols]
+
+    if all(w is None for w in widths):
+        return None
+    return [w for w in widths]  # may contain None for unknown columns
+
+
+def _apply_table_layout(table, content_width: int, col_widths_px: list[float | None] | None, max_cols: int):
+    """
+    Set exact table width and column widths via tblGrid + per-cell tcW.
+
+    col_widths_px: list of pixel widths from HTML (None = unknown).
+                   If provided, values are scaled proportionally to content_width.
+    """
+    # --- Resolve final twip widths ---
+    if col_widths_px and any(w is not None for w in col_widths_px):
+        known = [w for w in col_widths_px if w is not None and w > 0]
+        # Fill missing entries with the average of known
+        avg = sum(known) / len(known) if known else 1
+        filled = [w if (w is not None and w > 0) else avg for w in col_widths_px]
+        total_px = sum(filled)
+        col_widths = [int(content_width * w / total_px) for w in filled]
+        # Fix rounding drift
+        col_widths[-1] += content_width - sum(col_widths)
+    else:
+        base = content_width // max_cols
+        col_widths = [base] * max_cols
+        col_widths[-1] += content_width - sum(col_widths)
 
     tbl = table._tbl
 
-    # 1. tblPr → tblW (overall table width)
+    # 1. tblPr → tblW
     tblPr = tbl.find(qn("w:tblPr"))
     if tblPr is None:
         tblPr = OxmlElement("w:tblPr")
@@ -73,31 +154,31 @@ def _apply_table_layout(table, content_width: int, max_cols: int):
     tblW.set(qn("w:type"), "dxa")
     tblPr.append(tblW)
 
-    # 2. tblGrid — defines the column count and default widths
+    # 2. tblGrid
     tblGrid = tbl.find(qn("w:tblGrid"))
     if tblGrid is None:
         tblGrid = OxmlElement("w:tblGrid")
         tbl.append(tblGrid)
-    # Update existing gridCols, or create them
     existing = tblGrid.findall(qn("w:gridCol"))
-    for i in range(max_cols):
+    for i, w in enumerate(col_widths):
         if i < len(existing):
-            existing[i].set(qn("w:w"), str(col_width))
+            existing[i].set(qn("w:w"), str(w))
         else:
             gc = OxmlElement("w:gridCol")
-            gc.set(qn("w:w"), str(col_width))
+            gc.set(qn("w:w"), str(w))
             tblGrid.append(gc)
 
-    # 3. Per-cell tcW — must be set on every cell individually
+    # 3. Per-cell tcW
     for row in table.rows:
-        for cell in row.cells:
+        for j, cell in enumerate(row.cells):
+            if j >= max_cols:
+                break
             tc = cell._tc
             tcPr = tc.get_or_add_tcPr()
-            # Remove stale tcW if any
             for old in tcPr.findall(qn("w:tcW")):
                 tcPr.remove(old)
             tcW = OxmlElement("w:tcW")
-            tcW.set(qn("w:w"), str(col_width))
+            tcW.set(qn("w:w"), str(col_widths[j]))
             tcW.set(qn("w:type"), "dxa")
             tcPr.append(tcW)
 
@@ -115,7 +196,8 @@ def _process_table(tag: Tag, document: Document, content_width: int | None = Non
     _clear_borders(table)
 
     if content_width:
-        _apply_table_layout(table, content_width, max_cols)
+        col_widths_px = _extract_col_widths_px(tag, max_cols)
+        _apply_table_layout(table, content_width, col_widths_px, max_cols)
 
     for i, row_tag in enumerate(rows):
         cells = row_tag.find_all(["td", "th"])

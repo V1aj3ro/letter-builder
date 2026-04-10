@@ -71,6 +71,7 @@ async def create_letter(
         subject=data.subject,
         body=data.body,
         letter_date=data.letter_date or date.today(),
+        sender_type=data.sender_type,
     )
     db.add(letter)
     await db.commit()
@@ -106,6 +107,8 @@ async def update_letter(
         letter.body = data.body
     if data.letter_date is not None:
         letter.letter_date = data.letter_date
+    if data.sender_type is not None:
+        letter.sender_type = data.sender_type
 
     # Clear generated files since content changed
     letter.docx_path = None

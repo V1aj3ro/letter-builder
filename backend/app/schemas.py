@@ -56,6 +56,7 @@ class UserRoleUpdate(BaseModel):
 # --- Organization ---
 class OrganizationOut(BaseModel):
     id: int
+    # ООО
     name: str
     short_name: str
     inn: str
@@ -68,13 +69,28 @@ class OrganizationOut(BaseModel):
     phone: str
     signer_name: str
     signer_role: str
+    # ИП
+    ip_full_name: str
+    ip_inn: str
+    ip_ogrnip: str
+    ip_legal_address: str
+    ip_bank_name: str
+    ip_bik: str
+    ip_account: str
+    ip_corr_account: str
+    ip_phone: str
+    ip_signer_name: str
+    ip_signer_role: str
+    # Файлы
     logo_path: Optional[str]
+    footer_banner_path: Optional[str]
     signature_path: Optional[str]
 
     model_config = {"from_attributes": True}
 
 
 class OrganizationUpdate(BaseModel):
+    # ООО
     name: Optional[str] = None
     short_name: Optional[str] = None
     inn: Optional[str] = None
@@ -87,6 +103,18 @@ class OrganizationUpdate(BaseModel):
     phone: Optional[str] = None
     signer_name: Optional[str] = None
     signer_role: Optional[str] = None
+    # ИП
+    ip_full_name: Optional[str] = None
+    ip_inn: Optional[str] = None
+    ip_ogrnip: Optional[str] = None
+    ip_legal_address: Optional[str] = None
+    ip_bank_name: Optional[str] = None
+    ip_bik: Optional[str] = None
+    ip_account: Optional[str] = None
+    ip_corr_account: Optional[str] = None
+    ip_phone: Optional[str] = None
+    ip_signer_name: Optional[str] = None
+    ip_signer_role: Optional[str] = None
 
 
 # --- Recipient ---
@@ -152,6 +180,7 @@ class LetterCreate(BaseModel):
     subject: Optional[str] = None
     body: Optional[str] = None
     letter_date: Optional[date] = None
+    sender_type: str = "ooo"
 
 
 class LetterUpdate(BaseModel):
@@ -159,6 +188,7 @@ class LetterUpdate(BaseModel):
     subject: Optional[str] = None
     body: Optional[str] = None
     letter_date: Optional[date] = None
+    sender_type: Optional[str] = None
 
 
 class LetterStatusUpdate(BaseModel):
@@ -174,6 +204,7 @@ class LetterOut(BaseModel):
     created_by: int
     subject: Optional[str]
     body: Optional[str]
+    sender_type: str
     status: str
     docx_path: Optional[str]
     pdf_path: Optional[str]

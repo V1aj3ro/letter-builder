@@ -9,6 +9,7 @@ class Organization(Base):
     __tablename__ = "organizations"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    # ООО реквизиты
     name: Mapped[str] = mapped_column(String(500), default="")
     short_name: Mapped[str] = mapped_column(String(200), default="")
     inn: Mapped[str] = mapped_column(String(20), default="")
@@ -21,7 +22,21 @@ class Organization(Base):
     phone: Mapped[str] = mapped_column(String(50), default="")
     signer_name: Mapped[str] = mapped_column(String(200), default="")
     signer_role: Mapped[str] = mapped_column(String(200), default="")
+    # ИП реквизиты
+    ip_full_name: Mapped[str] = mapped_column(String(300), default="")
+    ip_inn: Mapped[str] = mapped_column(String(20), default="")
+    ip_ogrnip: Mapped[str] = mapped_column(String(20), default="")
+    ip_legal_address: Mapped[str] = mapped_column(String(500), default="")
+    ip_bank_name: Mapped[str] = mapped_column(String(300), default="")
+    ip_bik: Mapped[str] = mapped_column(String(20), default="")
+    ip_account: Mapped[str] = mapped_column(String(30), default="")
+    ip_corr_account: Mapped[str] = mapped_column(String(30), default="")
+    ip_phone: Mapped[str] = mapped_column(String(50), default="")
+    ip_signer_name: Mapped[str] = mapped_column(String(200), default="")
+    ip_signer_role: Mapped[str] = mapped_column(String(200), default="")
+    # Файлы
     logo_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    footer_banner_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     signature_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
 
 
@@ -82,13 +97,14 @@ class Letter(Base):
     __tablename__ = "letters"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    number: Mapped[int] = mapped_column(Integer, autoincrement=True, nullable=False)
+    number: Mapped[int] = mapped_column(Integer, nullable=False)
     letter_date: Mapped[date] = mapped_column(Date, default=date.today)
     project_id: Mapped[int] = mapped_column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     recipient_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("recipients.id", ondelete="SET NULL"), nullable=True)
     created_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
     subject: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     body: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    sender_type: Mapped[str] = mapped_column(String(10), default="ooo")
     status: Mapped[str] = mapped_column(String(20), default="draft")
     docx_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     pdf_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)

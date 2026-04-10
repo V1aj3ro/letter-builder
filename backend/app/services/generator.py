@@ -1,37 +1,38 @@
 """
-Generate a .docx letter following the reference template (р.docx).
+Generate a .docx letter.
 
 Layout:
-  1. Header table 1×2 (logo left | org details right)
-  2. Horizontal rule paragraph
-  3. Meta line: «Исх.№{number} от {date} г.»
-  4. Recipient (right-aligned, bold)
-  5. Subject (italic)
-  6. Body (HTML via html_to_docx)
-  7. Signature table 1×3
-  8. Executor block
+  Header (every page): logo left | org/IP details right + horizontal rule
+  Footer (every page): banner image (if uploaded)
+  Body:
+    1. Meta line «Исх.№{number} от {date} г.»
+    2. Recipient (right-aligned, bold)
+    3. Subject (italic)
+    4. Body (HTML)
+    5. Signature table
+    6. Executor block
 """
 import os
 from datetime import date as date_type
 from docx import Document
-from docx.shared import Cm, Pt
+from docx.shared import Cm, Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
+from lxml import etree
 
 from .html_to_docx import html_to_docx
 
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/app/uploads")
 
 
-def _set_cell_border(cell, **kwargs):
-    """Set border on a table cell via XML."""
+def _clear_cell_borders(cell):
     tc = cell._tc
     tcPr = tc.get_or_add_tcPr()
     tcBorders = OxmlElement("w:tcBorders")
     for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
         tag = OxmlElement(f"w:{edge}")
-        tag.set(qn("w:val"), kwargs.get(edge, "none"))
+        tag.set(qn("w:val"), "none")
         tag.set(qn("w:sz"), "0")
         tag.set(qn("w:space"), "0")
         tag.set(qn("w:color"), "auto")
@@ -39,10 +40,9 @@ def _set_cell_border(cell, **kwargs):
     tcPr.append(tcBorders)
 
 
-def _add_horizontal_rule(document: Document):
-    """Add a paragraph with a bottom border that renders as a horizontal line."""
-    p = document.add_paragraph()
-    pPr = p._p.get_or_add_pPr()
+def _add_paragraph_bottom_rule(paragraph):
+    """Render paragraph with a bottom border — looks like <hr>."""
+    pPr = paragraph._p.get_or_add_pPr()
     pBdr = OxmlElement("w:pBdr")
     bottom = OxmlElement("w:bottom")
     bottom.set(qn("w:val"), "single")
@@ -51,7 +51,6 @@ def _add_horizontal_rule(document: Document):
     bottom.set(qn("w:color"), "000000")
     pBdr.append(bottom)
     pPr.append(pBdr)
-    return p
 
 
 def _format_date(d) -> str:
@@ -60,173 +59,223 @@ def _format_date(d) -> str:
     return str(d)
 
 
+def _build_header(section, org, sender_type: str):
+    """
+    Fill the section header with:
+    - Left cell: logo image
+    - Right cell: org/IP details (8 pt)
+    - Horizontal rule paragraph below the table
+    """
+    header = section.header
+    header.is_linked_to_previous = False
+
+    content_width = section.page_width - section.left_margin - section.right_margin
+    logo_col = Cm(5.5)
+    details_col = content_width - logo_col
+
+    # --- Table ---
+    htable = header.add_table(1, 2, content_width)
+    # Remove default table borders
+    tblPr = htable._tbl.find(qn("w:tblPr"))
+    if tblPr is None:
+        tblPr = OxmlElement("w:tblPr")
+        htable._tbl.insert(0, tblPr)
+    tblBorders = OxmlElement("w:tblBorders")
+    for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        tag = OxmlElement(f"w:{edge}")
+        tag.set(qn("w:val"), "none")
+        tblBorders.append(tag)
+    tblPr.append(tblBorders)
+
+    left_cell = htable.cell(0, 0)
+    right_cell = htable.cell(0, 1)
+    _clear_cell_borders(left_cell)
+    _clear_cell_borders(right_cell)
+
+    left_cell.width = logo_col
+    right_cell.width = details_col
+
+    # Left: logo
+    left_para = left_cell.paragraphs[0]
+    left_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    if org and org.logo_path and os.path.exists(org.logo_path):
+        run = left_para.add_run()
+        run.add_picture(org.logo_path, width=Cm(5.0))
+
+    # Right: org or IP details
+    right_para = right_cell.paragraphs[0]
+    right_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    def _line(text: str, bold: bool = False):
+        if not text:
+            return
+        run = right_para.add_run(("\n" if right_para.runs else "") + text)
+        run.font.size = Pt(8)
+        run.bold = bold
+
+    if org:
+        if sender_type == "ip":
+            if org.ip_full_name:
+                _line(org.ip_full_name, bold=True)
+            if org.ip_inn:
+                _line(f"ИНН {org.ip_inn}")
+            if org.ip_ogrnip:
+                _line(f"ОГРНИП {org.ip_ogrnip}")
+            if org.ip_account:
+                _line(f"Р/с {org.ip_account}")
+            if org.ip_bank_name:
+                _line(org.ip_bank_name)
+            if org.ip_corr_account:
+                _line(f"К/с {org.ip_corr_account}")
+            if org.ip_bik:
+                _line(f"БИК {org.ip_bik}")
+            if org.ip_legal_address:
+                _line(org.ip_legal_address)
+            if org.ip_phone:
+                _line(f"Тел.: {org.ip_phone}")
+        else:
+            if org.name:
+                _line(org.name, bold=True)
+            if org.inn:
+                _line(f"ИНН {org.inn}")
+            if org.ogrn:
+                _line(f"ОГРН {org.ogrn}")
+            if org.account:
+                _line(f"Р/с {org.account}")
+            if org.bank_name:
+                _line(org.bank_name)
+            if org.corr_account:
+                _line(f"К/с {org.corr_account}")
+            if org.bik:
+                _line(f"БИК {org.bik}")
+            if org.legal_address:
+                _line(org.legal_address)
+            if org.phone:
+                _line(f"Тел.: {org.phone}")
+
+    # Remove the default empty paragraph that header starts with
+    # (it appears before our table — move it after as the rule)
+    default_para = header.paragraphs[0]
+    _add_paragraph_bottom_rule(default_para)
+    # Move default paragraph to end (after the table)
+    header._element.append(default_para._p)
+
+
+def _build_footer(section, org):
+    """Fill footer with the banner image spanning full content width."""
+    if not (org and org.footer_banner_path and os.path.exists(org.footer_banner_path)):
+        return
+
+    footer = section.footer
+    footer.is_linked_to_previous = False
+
+    content_width = section.page_width - section.left_margin - section.right_margin
+
+    para = footer.paragraphs[0]
+    para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = para.add_run()
+    run.add_picture(org.footer_banner_path, width=content_width)
+
+
 async def generate_letter_docx(letter, org) -> str:
-    """Build the .docx file and return its path."""
     output_dir = os.path.join(UPLOAD_DIR, "letters", str(letter.id))
     os.makedirs(output_dir, exist_ok=True)
-    filename = f"letter_{letter.number}.docx"
-    output_path = os.path.join(output_dir, filename)
+    output_path = os.path.join(output_dir, f"letter_{letter.number}.docx")
 
     doc = Document()
+    section = doc.sections[0]
 
-    # Page margins: 2 cm top/bottom, 2.5 cm left, 1.5 cm right
-    for section in doc.sections:
-        section.top_margin = Cm(2)
-        section.bottom_margin = Cm(2)
-        section.left_margin = Cm(2.5)
-        section.right_margin = Cm(1.5)
+    # Page margins
+    section.top_margin = Cm(2.5)   # extra space for header
+    section.bottom_margin = Cm(2.5)
+    section.left_margin = Cm(2.5)
+    section.right_margin = Cm(1.5)
+    section.header_distance = Cm(0.5)
+    section.footer_distance = Cm(0.5)
 
     # Default font
     style = doc.styles["Normal"]
     style.font.name = "Times New Roman"
     style.font.size = Pt(12)
 
-    # ──────────────────────────────────────────────────
-    # 1. HEADER TABLE (logo | org details)
-    # ──────────────────────────────────────────────────
-    header_table = doc.add_table(rows=1, cols=2)
-    header_table.style = "Table Grid"
+    sender = getattr(letter, "sender_type", "ooo")
 
-    left_cell = header_table.cell(0, 0)
-    right_cell = header_table.cell(0, 1)
+    # Build header and footer
+    _build_header(section, org, sender)
+    _build_footer(section, org)
 
-    _set_cell_border(left_cell)
-    _set_cell_border(right_cell)
-
-    # Set column widths: logo ~5.5 cm, details ~10.5 cm
-    header_table.columns[0].width = Cm(5.5)
-    header_table.columns[1].width = Cm(10.5)
-
-    # Left cell: logo
-    left_para = left_cell.paragraphs[0]
-    left_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    if org and org.logo_path and os.path.exists(org.logo_path):
-        run = left_para.add_run()
-        run.add_picture(org.logo_path, width=Cm(5.0))
-    # else — leave empty
-
-    # Right cell: org details
-    right_para = right_cell.paragraphs[0]
-    right_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-
-    def _details_run(text: str, bold: bool = False):
-        run = right_para.add_run(text)
-        run.font.size = Pt(8)
-        run.bold = bold
-        return run
-
-    if org:
-        lines = []
-        if org.name:
-            lines.append((org.name, True))
-        if org.inn:
-            lines.append((f"ИНН {org.inn}", False))
-        if org.ogrn:
-            lines.append((f"ОГРН {org.ogrn}", False))
-        if org.account:
-            lines.append((f"Р/с {org.account}", False))
-        if org.bank_name:
-            lines.append((f"{org.bank_name}", False))
-        if org.corr_account:
-            lines.append((f"К/с {org.corr_account}", False))
-        if org.bik:
-            lines.append((f"БИК {org.bik}", False))
-        if org.legal_address:
-            lines.append((f"{org.legal_address}", False))
-        if org.phone:
-            lines.append((f"Тел.: {org.phone}", False))
-
-        for i, (text, bold) in enumerate(lines):
-            if i > 0:
-                right_para.add_run("\n").font.size = Pt(8)
-            _details_run(text, bold=bold)
-
-    # ──────────────────────────────────────────────────
-    # 2. HORIZONTAL RULE
-    # ──────────────────────────────────────────────────
-    _add_horizontal_rule(doc)
-
-    # ──────────────────────────────────────────────────
-    # 3. META LINE
-    # ──────────────────────────────────────────────────
+    # ── Meta line ────────────────────────────────────
     meta = doc.add_paragraph()
     meta.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    date_str = _format_date(letter.letter_date)
-    meta.add_run(f"Исх.№{letter.number} от {date_str} г.")
+    meta.add_run(f"Исх.№{letter.number} от {_format_date(letter.letter_date)} г.")
 
-    # ──────────────────────────────────────────────────
-    # 4. RECIPIENT (right-aligned, bold)
-    # ──────────────────────────────────────────────────
+    # ── Recipient ────────────────────────────────────
     if letter.recipient:
         rec_para = doc.add_paragraph()
         rec_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
         run = rec_para.add_run(letter.recipient.name)
         run.bold = True
 
-    # ──────────────────────────────────────────────────
-    # 5. SUBJECT (italic)
-    # ──────────────────────────────────────────────────
+    # ── Subject ──────────────────────────────────────
     if letter.subject:
         subj_para = doc.add_paragraph()
         subj_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
         run = subj_para.add_run(letter.subject)
         run.italic = True
 
-    # empty line before body
     doc.add_paragraph()
 
-    # ──────────────────────────────────────────────────
-    # 6. BODY
-    # ──────────────────────────────────────────────────
+    # ── Body ─────────────────────────────────────────
     if letter.body:
         html_to_docx(letter.body, doc)
 
-    # empty line before signature
     doc.add_paragraph()
 
-    # ──────────────────────────────────────────────────
-    # 7. SIGNATURE TABLE (role+org | signature image | signer name)
-    # ──────────────────────────────────────────────────
+    # ── Signature ────────────────────────────────────
     sig_table = doc.add_table(rows=1, cols=3)
-    sig_table.style = "Table Grid"
-
-    sig_left = sig_table.cell(0, 0)
-    sig_mid = sig_table.cell(0, 1)
-    sig_right = sig_table.cell(0, 2)
-
-    for c in (sig_left, sig_mid, sig_right):
-        _set_cell_border(c)
+    for c in sig_table.cells[0:3] if False else sig_table.rows[0].cells:
+        _clear_cell_borders(c)
 
     sig_table.columns[0].width = Cm(6)
     sig_table.columns[1].width = Cm(4)
     sig_table.columns[2].width = Cm(6)
 
-    # Left: role + short org name
-    sig_left_para = sig_left.paragraphs[0]
-    sig_left_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    # Left
+    sl = sig_table.cell(0, 0).paragraphs[0]
+    sl.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    if sender == "ip":
+        signer_role = org.ip_signer_role if org else ""
+        signer_name_short = org.ip_full_name if org else ""
+        short_name = f"ИП {signer_name_short}" if signer_name_short else ""
+    else:
+        signer_role = org.signer_role if org else ""
+        short_name = org.short_name if org else ""
+
     left_text = "С уважением,"
-    if org and org.signer_role:
-        left_text += f"\n{org.signer_role}"
-    if org and org.short_name:
-        left_text += f" {org.short_name}"
-    sig_left_para.add_run(left_text)
+    if signer_role:
+        left_text += f"\n{signer_role}"
+    if short_name:
+        left_text += f" {short_name}"
+    sl.add_run(left_text)
 
     # Middle: signature image
-    sig_mid_para = sig_mid.paragraphs[0]
-    sig_mid_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    sm = sig_table.cell(0, 1).paragraphs[0]
+    sm.alignment = WD_ALIGN_PARAGRAPH.CENTER
     if org and org.signature_path and os.path.exists(org.signature_path):
-        run = sig_mid_para.add_run()
+        run = sm.add_run()
         run.add_picture(org.signature_path, width=Cm(3))
 
     # Right: signer name
-    sig_right_para = sig_right.paragraphs[0]
-    sig_right_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    if org and org.signer_name:
-        sig_right_para.add_run(org.signer_name)
+    sr = sig_table.cell(0, 2).paragraphs[0]
+    sr.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    if sender == "ip":
+        signer_name = org.ip_signer_name if org else ""
+    else:
+        signer_name = org.signer_name if org else ""
+    if signer_name:
+        sr.add_run(signer_name)
 
-    # ──────────────────────────────────────────────────
-    # 8. EXECUTOR
-    # ──────────────────────────────────────────────────
+    # ── Executor ─────────────────────────────────────
     doc.add_paragraph()
     exec_para = doc.add_paragraph()
     exec_text = "Исп.:"

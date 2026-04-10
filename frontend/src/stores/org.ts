@@ -4,6 +4,7 @@ import api from '../api'
 
 export interface Organization {
   id: number
+  // ООО
   name: string
   short_name: string
   inn: string
@@ -16,7 +17,21 @@ export interface Organization {
   phone: string
   signer_name: string
   signer_role: string
+  // ИП
+  ip_full_name: string
+  ip_inn: string
+  ip_ogrnip: string
+  ip_legal_address: string
+  ip_bank_name: string
+  ip_bik: string
+  ip_account: string
+  ip_corr_account: string
+  ip_phone: string
+  ip_signer_name: string
+  ip_signer_role: string
+  // Файлы
   logo_path: string | null
+  footer_banner_path: string | null
   signature_path: string | null
 }
 
@@ -53,5 +68,12 @@ export const useOrgStore = defineStore('org', () => {
     org.value = res.data
   }
 
-  return { org, loading, fetch, save, uploadLogo, uploadSignature }
+  async function uploadFooterBanner(file: File) {
+    const form = new FormData()
+    form.append('file', file)
+    const res = await api.post('/organization/footer-banner', form)
+    org.value = res.data
+  }
+
+  return { org, loading, fetch, save, uploadLogo, uploadSignature, uploadFooterBanner }
 })

@@ -11,6 +11,7 @@ export interface Letter {
   created_by: number
   subject: string | null
   body: string | null
+  sender_type: string
   status: string
   docx_path: string | null
   pdf_path: string | null
@@ -41,6 +42,7 @@ export const useLettersStore = defineStore('letters', () => {
     subject?: string
     body?: string
     letter_date?: string
+    sender_type?: string
   }): Promise<Letter> {
     const res = await api.post('/letters', data)
     current.value = res.data

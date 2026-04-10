@@ -106,3 +106,32 @@ async def upload_signature(
     await db.commit()
     await db.refresh(org)
     return org
+
+
+@router.post("/footer-banner", response_model=OrganizationOut)
+async def upload_footer_banner(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_admin_user),
+):
+    if file.content_type not in ALLOWED_LOGO:
+        raise HTTPException(status_code=400, detail="Invalid file type for footer banner")
+
+    org = await _get_or_create_org(db)
+
+    if org.footer_banner_path and os.path.exists(org.footer_banner_path):
+        os.remove(org.footer_banner_path)
+
+    ext = file.filename.rsplit(".", 1)[-1] if "." in file.filename else "png"
+    filename = f"{uuid.uuid4()}.{ext}"
+    path = os.path.join(UPLOAD_DIR, "org", filename)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+
+    content = await file.read()
+    with open(path, "wb") as f:
+        f.write(content)
+
+    org.footer_banner_path = path
+    await db.commit()
+    await db.refresh(org)
+    return org

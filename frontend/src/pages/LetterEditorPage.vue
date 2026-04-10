@@ -51,7 +51,7 @@
                 </div>
               </div>
 
-              <!-- Number + Date row -->
+              <!-- Number + Date + Sender row -->
               <div class="flex gap-2">
                 <div class="form-group" style="flex: 0 0 120px;">
                   <label>Номер</label>
@@ -60,6 +60,13 @@
                 <div class="form-group flex-1">
                   <label>Дата</label>
                   <input v-model="form.letter_date" type="date" :disabled="readonly" />
+                </div>
+                <div class="form-group" style="flex: 0 0 140px;">
+                  <label>Отправитель</label>
+                  <select v-model="form.sender_type" :disabled="readonly">
+                    <option value="ooo">ООО</option>
+                    <option value="ip">ИП</option>
+                  </select>
                 </div>
               </div>
 
@@ -128,15 +135,28 @@
                     <img v-if="org.logo_path" :src="'/uploads/' + org.logo_path.split('/uploads/').pop()" alt="logo" />
                   </div>
                   <div class="preview-org-details">
-                    <strong>{{ org.name }}</strong><br />
-                    <template v-if="org.inn">ИНН {{ org.inn }}<br /></template>
-                    <template v-if="org.ogrn">ОГРН {{ org.ogrn }}<br /></template>
-                    <template v-if="org.account">Р/с {{ org.account }}<br /></template>
-                    <template v-if="org.bank_name">{{ org.bank_name }}<br /></template>
-                    <template v-if="org.corr_account">К/с {{ org.corr_account }}<br /></template>
-                    <template v-if="org.bik">БИК {{ org.bik }}<br /></template>
-                    <template v-if="org.legal_address">{{ org.legal_address }}<br /></template>
-                    <template v-if="org.phone">Тел.: {{ org.phone }}</template>
+                    <template v-if="form.sender_type === 'ip'">
+                      <strong>{{ org.ip_full_name }}</strong><br />
+                      <template v-if="org.ip_inn">ИНН {{ org.ip_inn }}<br /></template>
+                      <template v-if="org.ip_ogrnip">ОГРНИП {{ org.ip_ogrnip }}<br /></template>
+                      <template v-if="org.ip_account">Р/с {{ org.ip_account }}<br /></template>
+                      <template v-if="org.ip_bank_name">{{ org.ip_bank_name }}<br /></template>
+                      <template v-if="org.ip_corr_account">К/с {{ org.ip_corr_account }}<br /></template>
+                      <template v-if="org.ip_bik">БИК {{ org.ip_bik }}<br /></template>
+                      <template v-if="org.ip_legal_address">{{ org.ip_legal_address }}<br /></template>
+                      <template v-if="org.ip_phone">Тел.: {{ org.ip_phone }}</template>
+                    </template>
+                    <template v-else>
+                      <strong>{{ org.name }}</strong><br />
+                      <template v-if="org.inn">ИНН {{ org.inn }}<br /></template>
+                      <template v-if="org.ogrn">ОГРН {{ org.ogrn }}<br /></template>
+                      <template v-if="org.account">Р/с {{ org.account }}<br /></template>
+                      <template v-if="org.bank_name">{{ org.bank_name }}<br /></template>
+                      <template v-if="org.corr_account">К/с {{ org.corr_account }}<br /></template>
+                      <template v-if="org.bik">БИК {{ org.bik }}<br /></template>
+                      <template v-if="org.legal_address">{{ org.legal_address }}<br /></template>
+                      <template v-if="org.phone">Тел.: {{ org.phone }}</template>
+                    </template>
                   </div>
                 </div>
                 <hr class="preview-hr" />
@@ -155,11 +175,25 @@
 
               <!-- Signature -->
               <div class="preview-signature" v-if="org">
-                <div class="preview-sig-left">С уважением,<br />{{ org.signer_role }} {{ org.short_name }}</div>
+                <div class="preview-sig-left">
+                  <template v-if="form.sender_type === 'ip'">
+                    С уважением,<br />{{ org.ip_signer_role }} ИП {{ org.ip_full_name }}
+                  </template>
+                  <template v-else>
+                    С уважением,<br />{{ org.signer_role }} {{ org.short_name }}
+                  </template>
+                </div>
                 <div class="preview-sig-mid">
                   <img v-if="org.signature_path" :src="'/uploads/' + org.signature_path.split('/uploads/').pop()" alt="подпись" />
                 </div>
-                <div class="preview-sig-right">{{ org.signer_name }}</div>
+                <div class="preview-sig-right">
+                  {{ form.sender_type === 'ip' ? org.ip_signer_name : org.signer_name }}
+                </div>
+              </div>
+
+              <!-- Footer banner -->
+              <div v-if="org?.footer_banner_path" class="preview-footer-banner">
+                <img :src="'/uploads/' + org.footer_banner_path.split('/uploads/').pop()" alt="баннер" />
               </div>
 
               <!-- Executor -->
@@ -223,6 +257,7 @@ const form = reactive({
   subject: '',
   body: '',
   letter_date: new Date().toISOString().split('T')[0],
+  sender_type: 'ooo',
 })
 
 const org = computed(() => orgStore.org)
@@ -282,6 +317,7 @@ async function doAutoSave() {
       subject: form.subject,
       body: form.body,
       letter_date: form.letter_date,
+      sender_type: form.sender_type,
     })
     saveStatus.value = 'Сохранено ✓'
   } catch {
@@ -289,7 +325,7 @@ async function doAutoSave() {
   }
 }
 
-watch([() => form.recipient_id, () => form.subject, () => form.body, () => form.letter_date], scheduleAutoSave)
+watch([() => form.recipient_id, () => form.subject, () => form.body, () => form.letter_date, () => form.sender_type], scheduleAutoSave)
 
 async function onProjectChange() {
   if (form.project_id) {
@@ -308,6 +344,7 @@ async function saveDraft() {
         subject: form.subject,
         body: form.body,
         letter_date: form.letter_date,
+        sender_type: form.sender_type,
       })
       letter.value = l
       router.replace(`/letters/${l.id}/edit`)
@@ -318,6 +355,7 @@ async function saveDraft() {
         subject: form.subject,
         body: form.body,
         letter_date: form.letter_date,
+        sender_type: form.sender_type,
       })
       letter.value = lettersStore.current!
       saveStatus.value = 'Сохранено ✓'
@@ -375,6 +413,7 @@ onMounted(async () => {
     form.subject = l.subject || ''
     form.body = l.body || ''
     form.letter_date = l.letter_date
+    form.sender_type = l.sender_type || 'ooo'
     editor.value?.commands.setContent(l.body || '')
     await projectsStore.fetchOne(l.project_id)
     project.value = projectsStore.current

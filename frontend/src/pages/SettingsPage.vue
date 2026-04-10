@@ -11,7 +11,14 @@
 
       <!-- ORG TAB -->
       <div v-if="activeTab === 'org'">
-        <div class="card" style="max-width: 640px;">
+        <div class="tabs tabs-inner">
+          <button :class="['tab-btn', orgTab === 'ooo' && 'active']" @click="orgTab = 'ooo'">ООО</button>
+          <button :class="['tab-btn', orgTab === 'ip' && 'active']" @click="orgTab = 'ip'">ИП</button>
+          <button :class="['tab-btn', orgTab === 'files' && 'active']" @click="orgTab = 'files'">Файлы</button>
+        </div>
+
+        <!-- ООО -->
+        <div v-if="orgTab === 'ooo'" class="card" style="max-width: 640px;">
           <form @submit.prevent="saveOrg">
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px;">
               <div class="form-group">
@@ -66,9 +73,64 @@
             <p v-if="orgSaved" style="color: var(--color-success); font-size: 0.875rem;">Сохранено ✓</p>
             <button type="submit" class="btn btn-primary">Сохранить</button>
           </form>
+        </div>
 
-          <hr style="margin: 24px 0; border-color: var(--color-border);" />
+        <!-- ИП -->
+        <div v-if="orgTab === 'ip'" class="card" style="max-width: 640px;">
+          <form @submit.prevent="saveOrg">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px;">
+              <div class="form-group" style="grid-column: 1 / -1;">
+                <label>ФИО ИП (полное)</label>
+                <input v-model="orgForm.ip_full_name" type="text" placeholder="Иванов Иван Иванович" />
+              </div>
+              <div class="form-group">
+                <label>ИНН</label>
+                <input v-model="orgForm.ip_inn" type="text" />
+              </div>
+              <div class="form-group">
+                <label>ОГРНИП</label>
+                <input v-model="orgForm.ip_ogrnip" type="text" />
+              </div>
+              <div class="form-group" style="grid-column: 1 / -1;">
+                <label>Юридический адрес</label>
+                <input v-model="orgForm.ip_legal_address" type="text" />
+              </div>
+              <div class="form-group" style="grid-column: 1 / -1;">
+                <label>Банк</label>
+                <input v-model="orgForm.ip_bank_name" type="text" />
+              </div>
+              <div class="form-group">
+                <label>БИК</label>
+                <input v-model="orgForm.ip_bik" type="text" />
+              </div>
+              <div class="form-group">
+                <label>Р/счёт</label>
+                <input v-model="orgForm.ip_account" type="text" />
+              </div>
+              <div class="form-group">
+                <label>Корр. счёт</label>
+                <input v-model="orgForm.ip_corr_account" type="text" />
+              </div>
+              <div class="form-group">
+                <label>Телефон</label>
+                <input v-model="orgForm.ip_phone" type="text" />
+              </div>
+              <div class="form-group">
+                <label>ФИО подписанта</label>
+                <input v-model="orgForm.ip_signer_name" type="text" placeholder="Иванов И.И." />
+              </div>
+              <div class="form-group">
+                <label>Должность подписанта</label>
+                <input v-model="orgForm.ip_signer_role" type="text" placeholder="Индивидуальный предприниматель" />
+              </div>
+            </div>
+            <p v-if="orgSaved" style="color: var(--color-success); font-size: 0.875rem;">Сохранено ✓</p>
+            <button type="submit" class="btn btn-primary">Сохранить</button>
+          </form>
+        </div>
 
+        <!-- Файлы -->
+        <div v-if="orgTab === 'files'" class="card" style="max-width: 640px;">
           <!-- Logo upload -->
           <div class="flex gap-3 items-center mb-3">
             <div>
@@ -82,8 +144,10 @@
             </div>
           </div>
 
+          <hr style="margin: 16px 0; border-color: var(--color-border);" />
+
           <!-- Signature upload -->
-          <div class="flex gap-3 items-center">
+          <div class="flex gap-3 items-center mb-3">
             <div>
               <strong style="font-size: 0.875rem; display: block; margin-bottom: 6px;">Подпись</strong>
               <img v-if="org?.signature_path" :src="'/uploads/' + org.signature_path.split('/uploads/').pop()" style="max-width: 120px; max-height: 60px; border: 1px solid var(--color-border); border-radius: 4px;" />
@@ -92,6 +156,21 @@
             <div>
               <input type="file" accept="image/png,image/jpeg" @change="uploadSignature" style="display: none;" ref="sigInput" />
               <button class="btn btn-secondary btn-sm" @click="sigInput?.click()">Загрузить подпись</button>
+            </div>
+          </div>
+
+          <hr style="margin: 16px 0; border-color: var(--color-border);" />
+
+          <!-- Footer banner upload -->
+          <div class="flex gap-3 items-center">
+            <div>
+              <strong style="font-size: 0.875rem; display: block; margin-bottom: 6px;">Нижний баннер (футер)</strong>
+              <img v-if="org?.footer_banner_path" :src="'/uploads/' + org.footer_banner_path.split('/uploads/').pop()" style="max-width: 200px; max-height: 40px; border: 1px solid var(--color-border); border-radius: 4px;" />
+              <div v-else class="text-muted text-sm">Не загружен</div>
+            </div>
+            <div>
+              <input type="file" accept="image/png,image/jpeg,image/svg+xml" @change="uploadFooterBanner" style="display: none;" ref="bannerInput" />
+              <button class="btn btn-secondary btn-sm" @click="bannerInput?.click()">Загрузить баннер</button>
             </div>
           </div>
         </div>
@@ -181,10 +260,12 @@ const orgStore = useOrgStore()
 const projectsStore = useProjectsStore()
 
 const activeTab = ref<'org' | 'users' | 'projects'>('org')
+const orgTab = ref<'ooo' | 'ip' | 'files'>('ooo')
 const orgSaved = ref(false)
 const users = ref<any[]>([])
 const logoInput = ref<HTMLInputElement | null>(null)
 const sigInput = ref<HTMLInputElement | null>(null)
+const bannerInput = ref<HTMLInputElement | null>(null)
 
 const org = computed(() => orgStore.org)
 const allProjects = computed(() => projectsStore.projects)
@@ -193,6 +274,9 @@ const orgForm = reactive({
   name: '', short_name: '', inn: '', ogrn: '', legal_address: '',
   bank_name: '', bik: '', account: '', corr_account: '', phone: '',
   signer_name: '', signer_role: '',
+  ip_full_name: '', ip_inn: '', ip_ogrnip: '', ip_legal_address: '',
+  ip_bank_name: '', ip_bik: '', ip_account: '', ip_corr_account: '',
+  ip_phone: '', ip_signer_name: '', ip_signer_role: '',
 })
 
 onMounted(async () => {
@@ -223,6 +307,12 @@ async function uploadSignature(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0]
   if (!file) return
   await orgStore.uploadSignature(file)
+}
+
+async function uploadFooterBanner(e: Event) {
+  const file = (e.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  await orgStore.uploadFooterBanner(file)
 }
 
 async function approve(id: number) {

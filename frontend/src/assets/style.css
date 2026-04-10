@@ -277,6 +277,15 @@ table.data-table tr:last-child td { border-bottom: none; }
   border-bottom-color: var(--color-primary);
 }
 
+.tabs-inner {
+  margin-bottom: 16px;
+  border-bottom-color: var(--color-border);
+}
+.tabs-inner .tab-btn {
+  font-size: 0.85rem;
+  padding: 7px 14px;
+}
+
 /* Chips */
 .chip {
   display: inline-flex;
@@ -372,6 +381,8 @@ table.data-table tr:last-child td { border-bottom: none; }
 .preview-sig-mid img { max-width: 3cm; }
 .preview-sig-right { flex: 1; text-align: right; font-size: 11pt; }
 .preview-executor { margin-top: 16px; font-size: 10pt; white-space: pre-line; }
+.preview-footer-banner { margin-top: 24px; text-align: center; }
+.preview-footer-banner img { max-width: 100%; max-height: 60px; }
 
 /* Tiptap editor */
 .tiptap-editor .ProseMirror {
@@ -381,9 +392,33 @@ table.data-table tr:last-child td { border-bottom: none; }
   min-height: 250px;
   outline: none;
   font-size: 0.9rem;
+  background: #ffffff !important;
+  color: #1e293b !important;
+  opacity: 1 !important;
+  line-height: 1.6;
 }
 .tiptap-editor .ProseMirror:focus {
   border-color: var(--color-primary);
+}
+.tiptap-editor .ProseMirror p {
+  margin: 0 0 8px;
+  color: #1e293b;
+}
+.tiptap-editor .ProseMirror ul,
+.tiptap-editor .ProseMirror ol {
+  padding-left: 20px;
+  color: #1e293b;
+}
+.tiptap-editor .ProseMirror table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 8px 0;
+}
+.tiptap-editor .ProseMirror td,
+.tiptap-editor .ProseMirror th {
+  border: 1px solid #cbd5e1;
+  padding: 6px 8px;
+  color: #1e293b;
 }
 .tiptap-toolbar {
   border: 1px solid var(--color-border);
@@ -399,15 +434,18 @@ table.data-table tr:last-child td { border-bottom: none; }
   padding: 4px 8px;
   border: 1px solid var(--color-border);
   border-radius: 4px;
-  background: var(--color-surface);
+  background: var(--color-surface) !important;
+  color: var(--color-text) !important;
   cursor: pointer;
   font-size: 0.85rem;
   font-weight: 600;
-  transition: background 0.15s;
+  opacity: 1 !important;
+  transition: background 0.15s, color 0.15s;
 }
-.tiptap-toolbar button:hover, .tiptap-toolbar button.is-active {
-  background: var(--color-primary);
-  color: #fff;
+.tiptap-toolbar button:hover,
+.tiptap-toolbar button.is-active {
+  background: var(--color-primary) !important;
+  color: #fff !important;
   border-color: var(--color-primary);
 }
 

@@ -115,7 +115,10 @@
                 <tr v-for="l in letters" :key="l.id">
                   <td class="font-semibold" style="color:var(--text);">{{ l.number }}</td>
                   <td class="text-muted">{{ formatDate(l.letter_date) }}</td>
-                  <td>{{ l.recipient?.name || <span class="text-subtle">—</span> }}</td>
+                  <td>
+                    <span v-if="l.recipient?.name">{{ l.recipient.name }}</span>
+                    <span v-else class="text-subtle">—</span>
+                  </td>
                   <td style="max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
                     {{ l.subject || '—' }}
                   </td>

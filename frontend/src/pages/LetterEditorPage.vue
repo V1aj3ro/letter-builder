@@ -301,6 +301,11 @@ async function openEditor() {
     const DocsAPI = (window as any).DocsAPI
     if (!DocsAPI) throw new Error('DocsAPI not available after script load')
 
+    console.log('[OnlyOffice] server:', data.server)
+    console.log('[OnlyOffice] document url:', data.config?.document?.url)
+    console.log('[OnlyOffice] callback url:', data.config?.editorConfig?.callbackUrl)
+    console.log('[OnlyOffice] jwt token present:', !!data.config?.token)
+
     docEditor = new DocsAPI.DocEditor('onlyoffice-container', {
       ...data.config,
       width:  '100%',

@@ -59,23 +59,27 @@ def _format_date(d) -> str:
     return str(d)
 
 
+def _emu_to_twips(emu: int) -> int:
+    """Convert EMU to Word twips (dxa). 1 twip = 635 EMU."""
+    return int(emu / 635)
+
+
 def _build_header(section, org, sender_type: str):
     """
     Fill the section header with:
-    - Left cell: logo image
-    - Right cell: org/IP details (8 pt)
+    - Left cell: logo image (flush to left page edge)
+    - Right cell: org/IP details (8 pt, right-aligned)
     - Horizontal rule paragraph below the table
     """
     header = section.header
     header.is_linked_to_previous = False
 
-    content_width = section.page_width - section.left_margin - section.right_margin
+    page_width = section.page_width
     logo_col = Cm(5.5)
-    details_col = content_width - logo_col
+    details_col = page_width - logo_col
 
-    # --- Table ---
-    htable = header.add_table(1, 2, content_width)
-    # Remove default table borders
+    # --- Table (full page width, shifted left past the margin) ---
+    htable = header.add_table(1, 2, page_width)
     tblPr = htable._tbl.find(qn("w:tblPr"))
     if tblPr is None:
         tblPr = OxmlElement("w:tblPr")
@@ -86,13 +90,18 @@ def _build_header(section, org, sender_type: str):
         tag.set(qn("w:val"), "none")
         tblBorders.append(tag)
     tblPr.append(tblBorders)
+    # Shift table to start at the left page edge (negative indent)
+    tblInd = OxmlElement("w:tblInd")
+    tblInd.set(qn("w:w"), str(-_emu_to_twips(section.left_margin)))
+    tblInd.set(qn("w:type"), "dxa")
+    tblPr.append(tblInd)
 
     left_cell = htable.cell(0, 0)
     right_cell = htable.cell(0, 1)
     _clear_cell_borders(left_cell)
     _clear_cell_borders(right_cell)
 
-    left_cell.width = logo_col
+    left_cell.width  = logo_col
     right_cell.width = details_col
 
     # Left: logo
@@ -170,12 +179,18 @@ def _build_footer(section, org):
     footer = section.footer
     footer.is_linked_to_previous = False
 
-    content_width = section.page_width - section.left_margin - section.right_margin
+    page_width = section.page_width
 
     para = footer.paragraphs[0]
-    para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    # Shift paragraph to start at left page edge and extend to right edge
+    pPr = para._p.get_or_add_pPr()
+    ind = OxmlElement("w:ind")
+    ind.set(qn("w:left"),  str(-_emu_to_twips(section.left_margin)))
+    ind.set(qn("w:right"), str(-_emu_to_twips(section.right_margin)))
+    pPr.append(ind)
     run = para.add_run()
-    run.add_picture(org.footer_banner_path, width=content_width)
+    run.add_picture(org.footer_banner_path, width=page_width)
 
 
 async def generate_letter_docx(letter, org) -> str:

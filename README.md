@@ -8,17 +8,6 @@
 - **Frontend:** Vue 3 · TypeScript · Vite · Pinia · Tiptap · Pico CSS
 - **Инфраструктура:** Docker Compose · Nginx
 
-## Быстрый старт
-
-```bash
-cp .env.example .env
-docker compose up --build
-```
-
-
-## Развёртывание на сервере
-
-Nginx Proxy Manager → `letters.demo.corpcore.ru` → `localhost:3010`
 
 ## Функциональность
 

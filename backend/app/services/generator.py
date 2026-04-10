@@ -69,13 +69,21 @@ async def _generate_from_template(letter, org, template_path: str) -> str:
 
     sender = getattr(letter, "sender_type", "ooo")
 
+    if sender == "ip":
+        signer_name = (org.ip_signer_name or "") if org else ""
+        signer_role = (org.ip_signer_role or "") if org else ""
+    else:
+        signer_name = (org.signer_name or "") if org else ""
+        signer_role = (org.signer_role or "") if org else ""
+
     context = {
         "number":         str(letter.number),
         "date":           _format_date(letter.letter_date),
         "recipient":      letter.recipient.name if letter.recipient else "",
         "subject":        letter.subject or "",
         "body":           body_sd,
-        "signer_name":    (org.ip_signer_name if sender == "ip" else org.signer_name) or "",
+        "signer_name":    signer_name,
+        "signer_role":    signer_role,
         "executor_name":  letter.creator.full_name if letter.creator else "",
         "executor_phone": (letter.creator.phone or "") if letter.creator else "",
     }

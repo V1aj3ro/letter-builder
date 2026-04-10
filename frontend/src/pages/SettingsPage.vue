@@ -182,7 +182,7 @@
               <strong style="font-size: 0.875rem; display: block; margin-bottom: 4px;">Шаблон письма (ООО)</strong>
               <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-bottom: 6px;">
                 .docx с плейсхолдерами:
-                <code v-for="ph in ['number','date','recipient','subject','body','signer_role','signer_name','executor_name','executor_phone']" :key="ph" style="margin-right:2px;">{{ '{{' + ph + '}}' }}</code>
+                <code v-for="ph in ['number','date','recipient','subject','body','signer_role','signer_name','executor_name','executor_phone']" :key="ph" style="margin-right:2px;">{{ '{' + '{' + ph + '}' + '}' }}</code>
               </div>
               <div v-if="org?.template_ooo_path" style="font-size: 0.85rem; color: var(--color-success);">
                 ✓ Шаблон загружен

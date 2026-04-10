@@ -19,7 +19,6 @@ from docx.shared import Cm, Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
-from lxml import etree
 
 from .html_to_docx import html_to_docx
 
@@ -40,17 +39,24 @@ def _clear_cell_borders(cell):
     tcPr.append(tcBorders)
 
 
-def _add_paragraph_bottom_rule(paragraph):
-    """Render paragraph with a bottom border — looks like <hr>."""
+def _clear_paragraph_borders(paragraph):
+    """Explicitly set all paragraph borders to none (prevents style inheritance)."""
     pPr = paragraph._p.get_or_add_pPr()
     pBdr = OxmlElement("w:pBdr")
-    bottom = OxmlElement("w:bottom")
-    bottom.set(qn("w:val"), "single")
-    bottom.set(qn("w:sz"), "6")
-    bottom.set(qn("w:space"), "1")
-    bottom.set(qn("w:color"), "000000")
-    pBdr.append(bottom)
+    for edge in ("top", "left", "bottom", "right", "between", "bar"):
+        tag = OxmlElement(f"w:{edge}")
+        tag.set(qn("w:val"), "none")
+        pBdr.append(tag)
     pPr.append(pBdr)
+
+
+def _set_cell_valign_center(cell):
+    """Vertically center content inside a table cell."""
+    tc = cell._tc
+    tcPr = tc.get_or_add_tcPr()
+    vAlign = OxmlElement("w:vAlign")
+    vAlign.set(qn("w:val"), "center")
+    tcPr.append(vAlign)
 
 
 def _format_date(d) -> str:
@@ -104,9 +110,11 @@ def _build_header(section, org, sender_type: str):
     left_cell.width  = logo_col
     right_cell.width = details_col
 
-    # Left: logo
+    # Left: logo — vertically centered
+    _set_cell_valign_center(left_cell)
     left_para = left_cell.paragraphs[0]
     left_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    _clear_paragraph_borders(left_para)
     if org and org.logo_path and os.path.exists(org.logo_path):
         run = left_para.add_run()
         run.add_picture(org.logo_path, width=Cm(5.0))
@@ -114,13 +122,15 @@ def _build_header(section, org, sender_type: str):
     # Right: org or IP details
     right_para = right_cell.paragraphs[0]
     right_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    _clear_paragraph_borders(right_para)
 
     def _line(text: str, bold: bool = False):
         if not text:
             return
         run = right_para.add_run(("\n" if right_para.runs else "") + text)
-        run.font.size = Pt(8)
-        run.font.color.rgb = RGBColor(0, 0, 0)
+        run.font.name = "Roboto"
+        run.font.size = Pt(11)
+        run.font.color.rgb = RGBColor(0x15, 0x15, 0x15)
         run.bold = bold
 
     if org:
@@ -163,11 +173,9 @@ def _build_header(section, org, sender_type: str):
             if org.phone:
                 _line(f"Тел.: {org.phone}")
 
-    # Remove the default empty paragraph that header starts with
-    # (it appears before our table — move it after as the rule)
+    # Move the default empty paragraph to after the table
     default_para = header.paragraphs[0]
-    _add_paragraph_bottom_rule(default_para)
-    # Move default paragraph to end (after the table)
+    _clear_paragraph_borders(default_para)
     header._element.append(default_para._p)
 
 
@@ -201,18 +209,18 @@ async def generate_letter_docx(letter, org) -> str:
     doc = Document()
     section = doc.sections[0]
 
-    # Page margins
-    section.top_margin = Cm(2.5)   # extra space for header
-    section.bottom_margin = Cm(2.5)
+    # Page margins (bottom=0 so footer sticks to page edge)
+    section.top_margin = Cm(2.5)
+    section.bottom_margin = Cm(0)
     section.left_margin = Cm(2.5)
     section.right_margin = Cm(1.5)
-    section.header_distance = Cm(0.5)
+    section.header_distance = Cm(1.27)
     section.footer_distance = Cm(0.5)
 
     # Default font
     style = doc.styles["Normal"]
-    style.font.name = "Times New Roman"
-    style.font.size = Pt(12)
+    style.font.name = "Roboto"
+    style.font.size = Pt(11)
 
     sender = getattr(letter, "sender_type", "ooo")
 
@@ -300,6 +308,7 @@ async def generate_letter_docx(letter, org) -> str:
         if letter.creator.phone:
             exec_text += f"\n{letter.creator.phone}"
     run = exec_para.add_run(exec_text)
+    run.font.name = "Roboto"
     run.font.size = Pt(10)
 
     doc.save(output_path)

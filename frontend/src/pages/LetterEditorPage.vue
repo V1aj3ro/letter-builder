@@ -267,6 +267,7 @@ const projectRecipients = computed(() => {
 // ── OnlyOffice ────────────────────────────────────────────────────────────────
 
 let docEditor: any = null
+let _pendingRegen = false  // set to true only when form fields changed
 
 function loadApiScript(serverUrl: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -309,8 +310,12 @@ async function openEditor() {
   const clearTimer = () => { if (readyTimer) { clearTimeout(readyTimer); readyTimer = null } }
 
   try {
-    // Fetch editor config (this also regenerates the .docx)
-    const { data } = await api.get(`/onlyoffice/editor-config/${letter.value.id}`)
+    // Fetch editor config. Pass regenerate=true only when explicitly requested
+    // (form changed) — otherwise preserve existing OnlyOffice edits.
+    const { data } = await api.get(`/onlyoffice/editor-config/${letter.value.id}`, {
+      params: { regenerate: _pendingRegen },
+    })
+    _pendingRegen = false
     lastGenSnapshot.value = formSnapshot()
 
     await loadApiScript(data.server)
@@ -369,7 +374,7 @@ async function saveDraft() {
       letter.value = l
       router.replace(`/letters/${l.id}/edit`)
       saveStatus.value = 'Сохранено ✓'
-      // Open editor immediately after creation
+      _pendingRegen = true  // first open — always generate
       await openEditor()
     }
   } catch {
@@ -401,6 +406,7 @@ async function saveMeta() {
 async function regenerateAndOpen() {
   if (!letter.value) return
   saving.value = true
+  _pendingRegen = true
   try {
     // Save form data first
     await lettersStore.update(letter.value.id, {

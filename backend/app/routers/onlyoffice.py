@@ -90,12 +90,16 @@ async def _get_letter_full(letter_id: int, db: AsyncSession) -> Letter:
 @router.get("/editor-config/{lid}")
 async def get_editor_config(
     lid: int,
+    regenerate: bool = False,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_approved_user),
 ):
     """
-    Generate (or regenerate) the letter .docx and return the OnlyOffice editor config.
-    Called by the frontend before opening the editor.
+    Return the OnlyOffice editor config for a letter.
+    Regenerates the .docx only when:
+      - regenerate=true (form fields changed, explicit request from frontend)
+      - no .docx file exists yet (first open)
+    Otherwise serves the existing file so OnlyOffice edits are preserved.
     """
     from ..services.generator import generate_letter_docx
 
@@ -104,11 +108,12 @@ async def get_editor_config(
     org_result = await db.execute(select(Organization).where(Organization.id == 1))
     org = org_result.scalar_one_or_none()
 
-    # (Re)generate the .docx — always fresh so form changes are reflected
-    docx_path = await generate_letter_docx(letter, org)
-    letter.docx_path = docx_path
-    letter.pdf_path = None  # invalidate PDF cache
-    await db.commit()
+    need_regen = regenerate or not letter.docx_path or not os.path.exists(letter.docx_path)
+    if need_regen:
+        docx_path = await generate_letter_docx(letter, org)
+        letter.docx_path = docx_path
+        letter.pdf_path = None
+        await db.commit()
 
     base = APP_PUBLIC_URL
     if not base:

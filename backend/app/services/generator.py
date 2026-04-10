@@ -46,6 +46,24 @@ def _emu_to_twips(emu: int) -> int:
 
 # ── Template-based generation ─────────────────────────────────────────────────
 
+def _init_body_doc_styles(doc):
+    """Apply Roboto font + correct spacing to all relevant styles in the body sub-doc."""
+    for style_name in ("Normal", "Default Paragraph Font",
+                       "List Bullet", "List Number",
+                       "List Bullet 2", "List Number 2"):
+        try:
+            s = doc.styles[style_name]
+            s.font.name = "Roboto"
+            s.font.size = Pt(11)
+        except KeyError:
+            pass
+    normal = doc.styles["Normal"]
+    normal.paragraph_format.space_before = Pt(0)
+    normal.paragraph_format.space_after  = Pt(6)
+    normal.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
+
+
+
 async def _generate_from_template(letter, org, template_path: str) -> str:
     from docxtpl import DocxTemplate
 
@@ -61,7 +79,11 @@ async def _generate_from_template(letter, org, template_path: str) -> str:
     body_sd: object = ""
     if letter.body:
         body_doc = Document()
-        html_to_docx(letter.body, body_doc, content_width)
+        # Match the template's font and spacing
+        _init_body_doc_styles(body_doc)
+        html_to_docx(letter.body, body_doc, content_width,
+                     font_name="Roboto", font_size_pt=11.0,
+                     space_before_pt=0.0, space_after_pt=6.0)
         tmp_fd, tmp_path = tempfile.mkstemp(suffix=".docx")
         os.close(tmp_fd)
         body_doc.save(tmp_path)

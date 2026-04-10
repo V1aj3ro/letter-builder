@@ -18,7 +18,37 @@ jobs:
         with:
           fetch-depth: 2
 
-      - name: Deploy via SSH
+      - name: Detect changed services
+        id: changes
+        run: |
+          PREV=$(git rev-parse HEAD^1)
+          CHANGED=$(git diff --name-only "$PREV" HEAD)
+          BUILD=""
+          echo "$CHANGED" | grep -q "^backend/"       && BUILD="$BUILD letters-backend"
+          echo "$CHANGED" | grep -q "^frontend/"      && BUILD="$BUILD letters-frontend"
+          echo "$CHANGED" | grep -q "^docker-compose" && BUILD="letters-backend letters-frontend"
+          echo "services=${BUILD}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Sync files to server
+        run: |
+          DEPLOY_DIR="/home/${{ secrets.SSH_USER }}/corpcore/letter-builder"
+          rsync -az --delete \
+            --exclude='.git' \
+            --exclude='node_modules' \
+            --exclude='__pycache__' \
+            --exclude='*.pyc' \
+            --exclude='.env' \
+            -e "ssh -i ~/.ssh/deploy_key" \
+            ./ "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${DEPLOY_DIR}/"
+
+      - name: Build and restart containers
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -26,16 +56,8 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             set -e
-            DEPLOY_DIR="/home/admen/corpcore/letter-builder"
-
-            if [ ! -d "$DEPLOY_DIR/.git" ]; then
-              git clone https://github.com/V1aj3ro/letter-builder.git "$DEPLOY_DIR"
-            fi
-
+            DEPLOY_DIR="/home/${{ secrets.SSH_USER }}/corpcore/letter-builder"
             cd "$DEPLOY_DIR"
-            git fetch origin main
-            PREV=$(git rev-parse HEAD)
-            git reset --hard origin/main
 
             if [ ! -f ".env" ]; then
               printf 'DB_PASSWORD=%s\nSECRET_KEY=%s\n' \
@@ -43,22 +65,9 @@ jobs:
                 '${{ secrets.SECRET_KEY }}' > .env
             fi
 
-            # Determine which services changed
-            CHANGED=$(git diff --name-only $PREV HEAD)
-            BUILD=""
-            if echo "$CHANGED" | grep -q "^backend/"; then
-              BUILD="$BUILD letters-backend"
-            fi
-            if echo "$CHANGED" | grep -q "^frontend/"; then
-              BUILD="$BUILD letters-frontend"
-            fi
-            if echo "$CHANGED" | grep -q "^docker-compose.yml"; then
-              BUILD="letters-backend letters-frontend"
-            fi
-
+            BUILD="${{ steps.changes.outputs.services }}"
             if [ -n "$BUILD" ]; then
               docker compose build $BUILD
-              # Stop conflicting containers before recreating
               docker compose rm -sf $BUILD 2>/dev/null || true
             fi
 

@@ -4,12 +4,20 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - 'docker-compose.yml'
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -18,8 +26,6 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             set -e
-            export GIT_TERMINAL_PROMPT=0
-
             DEPLOY_DIR="/home/admen/corpcore/letter-builder"
 
             if [ ! -d "$DEPLOY_DIR/.git" ]; then
@@ -28,6 +34,7 @@ jobs:
 
             cd "$DEPLOY_DIR"
             git fetch origin main
+            PREV=$(git rev-parse HEAD)
             git reset --hard origin/main
 
             if [ ! -f ".env" ]; then
@@ -36,8 +43,23 @@ jobs:
                 '${{ secrets.SECRET_KEY }}' > .env
             fi
 
-            docker compose build --no-cache
-            docker compose up -d --remove-orphans
+            # Determine which services changed
+            CHANGED=$(git diff --name-only $PREV HEAD)
+            BUILD=""
+            if echo "$CHANGED" | grep -q "^backend/"; then
+              BUILD="$BUILD letters-backend"
+            fi
+            if echo "$CHANGED" | grep -q "^frontend/"; then
+              BUILD="$BUILD letters-frontend"
+            fi
+            if echo "$CHANGED" | grep -q "^docker-compose.yml"; then
+              BUILD="letters-backend letters-frontend"
+            fi
 
-            sleep 5
+            if [ -n "$BUILD" ]; then
+              docker compose build $BUILD
+            fi
+
+            docker compose up -d --remove-orphans
+            sleep 3
             docker compose ps

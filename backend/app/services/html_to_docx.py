@@ -217,7 +217,7 @@ def _process_table(tag: Tag, document: Document, content_width: int | None = Non
         return
 
     table = document.add_table(rows=len(rows), cols=max_cols)
-    _add_thin_borders(table)
+    _clear_borders(table)
 
     if content_width:
         col_widths_px = _extract_col_widths_px(tag, max_cols)
@@ -230,7 +230,7 @@ def _process_table(tag: Tag, document: Document, content_width: int | None = Non
                 break
             cell = table.cell(i, j)
             cell.text = ""
-            _add_thin_borders(cell, is_cell=True)
+            _clear_borders(cell, is_cell=True)
             para = cell.paragraphs[0]
             _set_para_spacing(para, space_before_pt, space_after_pt)
             is_header = cell_tag.name == "th"

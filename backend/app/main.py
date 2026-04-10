@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from alembic.config import Config
 from alembic import command
 
-from .routers import auth, profile, organization, projects, recipients, letters, users
+from .routers import auth, profile, organization, projects, recipients, letters, users, onlyoffice
 
 
 def _run_migrations():
@@ -44,6 +44,7 @@ app.include_router(projects.router, prefix="/api/projects", tags=["projects"])
 app.include_router(recipients.router, prefix="/api/recipients", tags=["recipients"])
 app.include_router(letters.router, prefix="/api/letters", tags=["letters"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])
+app.include_router(onlyoffice.router, prefix="/api/onlyoffice", tags=["onlyoffice"])
 
 
 @app.get("/api/health")

@@ -21,6 +21,13 @@ services:
       DATABASE_URL: postgresql+asyncpg://letters:${DB_PASSWORD}@letters-db:5432/letters
       SECRET_KEY: ${SECRET_KEY}
       UPLOAD_DIR: /app/uploads
+      # OnlyOffice Document Server URL (public, reachable from browser)
+      ONLYOFFICE_SERVER: ${ONLYOFFICE_SERVER:-https://office.demo.corpcore.ru}
+      # Public URL of THIS app reachable by the OnlyOffice server
+      # Example: https://letters.demo.corpcore.ru  or  http://YOUR_IP:3010
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-}
+      # JWT secret configured in OnlyOffice (leave empty if JWT is disabled)
+      ONLYOFFICE_JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:-}
     volumes:
       - letters_uploads:/app/uploads
     depends_on:

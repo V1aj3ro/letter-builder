@@ -58,6 +58,8 @@ jobs:
 
             if [ -n "$BUILD" ]; then
               docker compose build $BUILD
+              # Stop conflicting containers before recreating
+              docker compose rm -sf $BUILD 2>/dev/null || true
             fi
 
             docker compose up -d --remove-orphans

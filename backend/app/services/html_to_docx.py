@@ -59,7 +59,6 @@ def _process_table(tag: Tag, document: Document):
         return
 
     table = document.add_table(rows=len(rows), cols=max_cols)
-    table.style = "Table Normal"
     _clear_borders(table)
 
     for i, row_tag in enumerate(rows):

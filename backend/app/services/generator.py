@@ -70,11 +70,31 @@ async def _generate_from_template(letter, org, template_path: str) -> str:
     sender = getattr(letter, "sender_type", "ooo")
 
     if sender == "ip":
-        signer_name = (org.ip_signer_name or "") if org else ""
-        signer_role = (org.ip_signer_role or "") if org else ""
+        signer_name    = (org.ip_signer_name or "")    if org else ""
+        signer_role    = (org.ip_signer_role or "")    if org else ""
+        org_name       = (org.ip_full_name or "")      if org else ""
+        org_short_name = (org.ip_full_name or "")      if org else ""
+        org_inn        = (f"ИНН {org.ip_inn}," if org and org.ip_inn else "")
+        org_ogrn       = (f"ОГРНИП {org.ip_ogrnip}" if org and org.ip_ogrnip else "")
+        org_account    = (f"Р/с {org.ip_account}" if org and org.ip_account else "")
+        org_bank       = (org.ip_bank_name or "")      if org else ""
+        org_corr       = (f"Корр. счёт {org.ip_corr_account}" if org and org.ip_corr_account else "")
+        org_bik        = (f"БИК {org.ip_bik}" if org and org.ip_bik else "")
+        org_address    = (f"Адрес: {org.ip_legal_address}" if org and org.ip_legal_address else "")
+        org_phone      = (org.ip_phone or "")          if org else ""
     else:
-        signer_name = (org.signer_name or "") if org else ""
-        signer_role = (org.signer_role or "") if org else ""
+        signer_name    = (org.signer_name or "")       if org else ""
+        signer_role    = (org.signer_role or "")       if org else ""
+        org_name       = (org.name or "")              if org else ""
+        org_short_name = (org.short_name or "")        if org else ""
+        org_inn        = (f"ИНН {org.inn}," if org and org.inn else "")
+        org_ogrn       = (f"ОГРН {org.ogrn}" if org and org.ogrn else "")
+        org_account    = (f"Р/с {org.account}" if org and org.account else "")
+        org_bank       = (org.bank_name or "")         if org else ""
+        org_corr       = (f"Корр. счёт {org.corr_account}" if org and org.corr_account else "")
+        org_bik        = (f"БИК {org.bik}" if org and org.bik else "")
+        org_address    = (f"Адрес: {org.legal_address}" if org and org.legal_address else "")
+        org_phone      = (org.phone or "")             if org else ""
 
     context = {
         "number":         str(letter.number),
@@ -84,6 +104,16 @@ async def _generate_from_template(letter, org, template_path: str) -> str:
         "body":           body_sd,
         "signer_name":    signer_name,
         "signer_role":    signer_role,
+        "org_name":       org_name,
+        "org_short_name": org_short_name,
+        "org_inn":        org_inn,
+        "org_ogrn":       org_ogrn,
+        "org_account":    org_account,
+        "org_bank":       org_bank,
+        "org_corr":       org_corr,
+        "org_bik":        org_bik,
+        "org_address":    org_address,
+        "org_phone":      org_phone,
         "executor_name":  letter.creator.full_name if letter.creator else "",
         "executor_phone": (letter.creator.phone or "") if letter.creator else "",
     }

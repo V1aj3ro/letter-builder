@@ -109,8 +109,7 @@ async def update_letter(
     if data.sender_type is not None:
         letter.sender_type = data.sender_type
 
-    # Clear generated files since content changed
-    letter.docx_path = None
+    # Invalidate cached PDF (will be re-derived from current docx on next download)
     letter.pdf_path = None
 
     await db.commit()

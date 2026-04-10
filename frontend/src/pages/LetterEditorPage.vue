@@ -190,7 +190,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, watch, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppLayout from '../components/layout/AppLayout.vue'
 import { useAuthStore } from '../stores/auth'
@@ -375,6 +375,7 @@ async function saveDraft() {
       router.replace(`/letters/${l.id}/edit`)
       saveStatus.value = 'Сохранено ✓'
       _pendingRegen = true  // first open — always generate
+      await nextTick()
       await openEditor()
     }
   } catch {
@@ -478,9 +479,10 @@ onMounted(async () => {
     project.value = projectsStore.current
 
     lastGenSnapshot.value = formSnapshot()
-
-    // Auto-open editor
+    initLoading.value = false
+    await nextTick()
     await openEditor()
+    return
   } else if (projectId) {
     form.project_id = projectId
     await projectsStore.fetchOne(projectId)

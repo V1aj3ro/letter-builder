@@ -63,7 +63,7 @@ def _jwt_sign(payload: dict) -> str | None:
         return None
     try:
         from jose import jwt as jose_jwt
-        return jose_jwt.encode({"payload": payload}, ONLYOFFICE_JWT_SECRET, algorithm="HS256")
+        return jose_jwt.encode(payload, ONLYOFFICE_JWT_SECRET, algorithm="HS256")
     except Exception as e:
         log.warning("OnlyOffice JWT signing failed: %s", e)
         return None

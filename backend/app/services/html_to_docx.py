@@ -28,6 +28,27 @@ def _process_inline(element, paragraph, bold=False, italic=False):
             _process_inline(child, paragraph, bold=is_bold, italic=is_italic)
 
 
+def _clear_borders(obj_tbl_or_cell, is_cell: bool = False):
+    """Remove all borders from a table or cell XML element."""
+    tc_or_tbl = obj_tbl_or_cell._tc if is_cell else obj_tbl_or_cell._tbl
+    pr_tag = "w:tcPr" if is_cell else "w:tblPr"
+    border_tag = "w:tcBorders" if is_cell else "w:tblBorders"
+
+    pPr = tc_or_tbl.find(qn(pr_tag))
+    if pPr is None:
+        pPr = OxmlElement(pr_tag)
+        tc_or_tbl.insert(0, pPr)
+
+    borders = OxmlElement(border_tag)
+    for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        tag = OxmlElement(f"w:{edge}")
+        tag.set(qn("w:val"), "none")
+        tag.set(qn("w:sz"), "0")
+        tag.set(qn("w:color"), "auto")
+        borders.append(tag)
+    pPr.append(borders)
+
+
 def _process_table(tag: Tag, document: Document):
     rows = tag.find_all("tr")
     if not rows:
@@ -38,7 +59,8 @@ def _process_table(tag: Tag, document: Document):
         return
 
     table = document.add_table(rows=len(rows), cols=max_cols)
-    table.style = "Table Grid"
+    table.style = "Table Normal"
+    _clear_borders(table)
 
     for i, row_tag in enumerate(rows):
         cells = row_tag.find_all(["td", "th"])
@@ -47,6 +69,7 @@ def _process_table(tag: Tag, document: Document):
                 break
             cell = table.cell(i, j)
             cell.text = ""
+            _clear_borders(cell, is_cell=True)
             para = cell.paragraphs[0]
             is_header = cell_tag.name == "th"
             for child in cell_tag.children:

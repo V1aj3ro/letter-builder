@@ -16,7 +16,7 @@ import os
 from datetime import date as date_type
 from docx import Document
 from docx.shared import Cm, Pt, Twips, RGBColor
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
@@ -217,10 +217,13 @@ async def generate_letter_docx(letter, org) -> str:
     section.header_distance = Twips(720)  # 1.27 cm
     section.footer_distance = Twips(291)  # 0.51 cm
 
-    # Default font
+    # Default font and paragraph spacing
     style = doc.styles["Normal"]
     style.font.name = "Roboto"
     style.font.size = Pt(11)
+    style.paragraph_format.space_before = Pt(0)
+    style.paragraph_format.space_after = Pt(0)
+    style.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
 
     sender = getattr(letter, "sender_type", "ooo")
 

@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  letters-db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: letters
+      POSTGRES_USER: letters
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - letters_db_data:/var/lib/postgresql/data
+
+  letters-backend:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://letters:${DB_PASSWORD}@letters-db:5432/letters
+      SECRET_KEY: ${SECRET_KEY}
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      - letters_uploads:/app/uploads
+    depends_on:
+      letters-db:
+        condition: service_started
+
+  letters-frontend:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - "3010:80"
+    depends_on:
+      - letters-backend
+
+volumes:
+  letters_db_data:
+  letters_uploads:

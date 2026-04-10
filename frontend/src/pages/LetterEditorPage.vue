@@ -8,10 +8,10 @@
         <div class="flex items-center gap-2 mb-3">
           <div class="breadcrumbs" style="margin: 0;">
             <RouterLink to="/projects">Проекты</RouterLink>
-            <span>/</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="breadcrumb-sep"><polyline points="9 18 15 12 9 6"/></svg>
             <RouterLink v-if="project" :to="`/projects/${project.id}`">{{ project.name }}</RouterLink>
-            <span>/</span>
-            {{ letter ? `Письмо №${letter.number}` : 'Новое письмо' }}
+            <svg v-if="project" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="breadcrumb-sep"><polyline points="9 18 15 12 9 6"/></svg>
+            <span>{{ letter ? `Письмо №${letter.number}` : 'Новое письмо' }}</span>
           </div>
           <div class="ml-auto flex items-center gap-2">
             <span class="save-status">{{ saveStatus }}</span>
@@ -22,7 +22,7 @@
 
           <!-- LEFT: compact form -->
           <div class="editor-sidebar">
-            <div class="card" style="padding: 16px;">
+            <div class="card">
 
               <!-- Project select (new letter only) -->
               <div v-if="!route.query.project_id && !letter" class="form-group">
@@ -43,30 +43,32 @@
                   </select>
                   <button
                     v-if="!readonly"
-                    class="btn btn-secondary btn-sm"
+                    class="btn btn-secondary btn-sm btn-icon"
                     @click="showAddRecipient = !showAddRecipient"
                     title="Создать нового адресата"
-                  >+ Новый</button>
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  </button>
                 </div>
                 <div v-if="showAddRecipient" class="flex gap-2 items-center mt-2">
-                  <input v-model="newRecipientName" placeholder="Название адресата" style="flex: 1; padding: 6px 8px; border: 1px solid var(--color-border); border-radius: 6px;" />
-                  <button class="btn btn-primary btn-sm" @click="createAndAddRecipient">Создать</button>
-                  <button class="btn btn-secondary btn-sm" @click="showAddRecipient = false">✕</button>
+                  <input v-model="newRecipientName" placeholder="Название адресата" style="flex:1; padding:6px 9px; border:1px solid var(--border); border-radius:var(--r); font-size:13px; font-family:inherit;" />
+                  <button class="btn btn-primary btn-sm" @click="createAndAddRecipient">Добавить</button>
+                  <button class="btn btn-ghost btn-sm" @click="showAddRecipient = false">✕</button>
                 </div>
               </div>
 
               <!-- Number + Date + Sender -->
               <div class="flex gap-2">
-                <div class="form-group" style="flex: 0 0 90px;">
-                  <label>Номер</label>
-                  <input :value="letter?.number || '—'" readonly style="background: var(--color-bg); color: var(--color-muted);" />
+                <div class="form-group" style="flex: 0 0 72px;">
+                  <label>№</label>
+                  <input :value="letter?.number || '—'" readonly />
                 </div>
                 <div class="form-group flex-1">
                   <label>Дата</label>
                   <input v-model="form.letter_date" type="date" :disabled="readonly" />
                 </div>
-                <div class="form-group" style="flex: 0 0 90px;">
-                  <label>От кого</label>
+                <div class="form-group" style="flex: 0 0 76px;">
+                  <label>Тип</label>
                   <select v-model="form.sender_type" :disabled="readonly">
                     <option value="ooo">ООО</option>
                     <option value="ip">ИП</option>
@@ -75,8 +77,8 @@
               </div>
 
               <!-- Subject -->
-              <div class="form-group">
-                <label>Тема</label>
+              <div class="form-group" style="margin-bottom:0">
+                <label>Тема письма</label>
                 <input
                   v-model="form.subject"
                   type="text"
@@ -84,52 +86,70 @@
                   :disabled="readonly"
                 />
               </div>
+            </div>
 
-              <!-- Stale warning -->
-              <div v-if="docStale && letter" class="stale-banner">
-                ⚠ Реквизиты изменились. Нажмите «Обновить документ», чтобы применить.
-              </div>
+            <!-- Stale warning -->
+            <div v-if="docStale && letter" class="stale-banner">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; margin-top:1px;">
+                <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+              </svg>
+              Реквизиты изменились. Нажмите «Обновить», чтобы применить.
+            </div>
 
-              <!-- Actions -->
+            <!-- Actions -->
+            <div class="card">
               <div class="sidebar-actions">
-                <!-- Save (new letter) -->
                 <button
                   v-if="!letter && !readonly"
                   class="btn btn-primary"
                   @click="saveDraft"
                   :disabled="saving || !form.project_id"
+                  style="justify-content:center;"
                 >{{ saving ? 'Создание...' : 'Создать и открыть' }}</button>
 
-                <!-- Update doc (existing, form changed) -->
                 <button
                   v-if="letter && docStale && !readonly"
                   class="btn btn-primary"
                   @click="regenerateAndOpen"
                   :disabled="editorLoading"
-                >{{ editorLoading ? 'Обновление...' : '↺ Обновить документ' }}</button>
+                  style="justify-content:center;"
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.28-6.24"/></svg>
+                  {{ editorLoading ? 'Обновление...' : 'Обновить документ' }}
+                </button>
 
-                <!-- Save metadata only (no regen needed) -->
                 <button
                   v-if="letter && !docStale && !readonly"
                   class="btn btn-secondary"
                   @click="saveMeta"
                   :disabled="saving"
+                  style="justify-content:center;"
                 >{{ saving ? 'Сохранение...' : 'Сохранить' }}</button>
 
-                <button class="btn btn-secondary" @click="downloadFile('docx')" :disabled="!letter">
-                  ↓ DOCX
-                </button>
-                <button class="btn btn-secondary" @click="downloadFile('pdf')" :disabled="!letter">
-                  ↓ PDF
-                </button>
+                <div class="flex gap-2">
+                  <button class="btn btn-secondary flex-1" @click="downloadFile('docx')" :disabled="!letter" style="justify-content:center;">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    DOCX
+                  </button>
+                  <button class="btn btn-secondary flex-1" @click="downloadFile('pdf')" :disabled="!letter" style="justify-content:center;">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    PDF
+                  </button>
+                </div>
+
                 <button
                   v-if="letter && letter.status === 'draft'"
                   class="btn btn-secondary"
                   @click="markSent"
-                >✓ Отправлено</button>
-                <span v-if="letter?.status === 'sent'" class="badge badge-sent" style="align-self: center;">Отправлено</span>
+                  style="justify-content:center;"
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  Отметить отправленным
+                </button>
+                <div v-if="letter?.status === 'sent'" style="text-align:center;">
+                  <span class="badge badge-sent">Отправлено</span>
+                </div>
               </div>
-
             </div>
           </div>
 

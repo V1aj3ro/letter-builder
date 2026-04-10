@@ -60,9 +60,12 @@ jobs:
             cd "$DEPLOY_DIR"
 
             if [ ! -f ".env" ]; then
-              printf 'DB_PASSWORD=%s\nSECRET_KEY=%s\n' \
+              printf 'DB_PASSWORD=%s\nSECRET_KEY=%s\nAPP_PUBLIC_URL=%s\nONLYOFFICE_SERVER=%s\nONLYOFFICE_JWT_SECRET=%s\n' \
                 '${{ secrets.DB_PASSWORD }}' \
-                '${{ secrets.SECRET_KEY }}' > .env
+                '${{ secrets.SECRET_KEY }}' \
+                '${{ secrets.APP_PUBLIC_URL }}' \
+                '${{ secrets.ONLYOFFICE_SERVER }}' \
+                '${{ secrets.ONLYOFFICE_JWT_SECRET }}' > .env
             fi
 
             BUILD="${{ steps.changes.outputs.services }}"

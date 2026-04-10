@@ -62,8 +62,8 @@ def _jwt_sign(payload: dict) -> str | None:
     if not ONLYOFFICE_JWT_SECRET:
         return None
     try:
-        import jwt as pyjwt  # pip install PyJWT
-        return pyjwt.encode({"payload": payload}, ONLYOFFICE_JWT_SECRET, algorithm="HS256")
+        from jose import jwt as jose_jwt
+        return jose_jwt.encode({"payload": payload}, ONLYOFFICE_JWT_SECRET, algorithm="HS256")
     except Exception as e:
         log.warning("OnlyOffice JWT signing failed: %s", e)
         return None
@@ -192,6 +192,27 @@ async def serve_document(
     )
 
 
+def _verify_jwt_callback(request: Request, body: dict) -> bool:
+    """Verify JWT sent by OnlyOffice in the Authorization header or body token."""
+    if not ONLYOFFICE_JWT_SECRET:
+        return True  # JWT disabled on OnlyOffice side — skip verification
+    try:
+        from jose import jwt as jose_jwt, JWTError
+        auth = request.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            token = auth[7:]
+        else:
+            token = body.get("token", "")
+        if not token:
+            log.warning("OnlyOffice callback: no JWT token, rejecting")
+            return False
+        jose_jwt.decode(token, ONLYOFFICE_JWT_SECRET, algorithms=["HS256"])
+        return True
+    except Exception as e:
+        log.warning("OnlyOffice callback JWT verification failed: %s", e)
+        return False
+
+
 @router.post("/callback/{lid}")
 async def onlyoffice_callback(
     lid: int,
@@ -213,6 +234,9 @@ async def onlyoffice_callback(
         body = await request.json()
     except Exception:
         return {"error": 0}
+
+    if not _verify_jwt_callback(request, body):
+        raise HTTPException(status_code=403, detail="Invalid OnlyOffice JWT")
 
     log.info("OnlyOffice callback letter_id=%s status=%s", lid, body.get("status"))
 

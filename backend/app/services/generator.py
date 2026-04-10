@@ -104,13 +104,14 @@ def _build_header(section, org, sender_type: str):
 
     # Right: org or IP details
     right_para = right_cell.paragraphs[0]
-    right_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    right_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
 
     def _line(text: str, bold: bool = False):
         if not text:
             return
         run = right_para.add_run(("\n" if right_para.runs else "") + text)
         run.font.size = Pt(8)
+        run.font.color.rgb = RGBColor(0, 0, 0)
         run.bold = bold
 
     if org:

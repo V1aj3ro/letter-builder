@@ -49,7 +49,20 @@ def _clear_borders(obj_tbl_or_cell, is_cell: bool = False):
     pPr.append(borders)
 
 
-def _process_table(tag: Tag, document: Document):
+def _set_table_width(table, width_twips: int):
+    """Force table to an exact width (in twips/dxa)."""
+    tbl = table._tbl
+    tblPr = tbl.find(qn("w:tblPr"))
+    if tblPr is None:
+        tblPr = OxmlElement("w:tblPr")
+        tbl.insert(0, tblPr)
+    tblW = OxmlElement("w:tblW")
+    tblW.set(qn("w:w"), str(width_twips))
+    tblW.set(qn("w:type"), "dxa")
+    tblPr.append(tblW)
+
+
+def _process_table(tag: Tag, document: Document, content_width: int | None = None):
     rows = tag.find_all("tr")
     if not rows:
         return
@@ -60,6 +73,13 @@ def _process_table(tag: Tag, document: Document):
 
     table = document.add_table(rows=len(rows), cols=max_cols)
     _clear_borders(table)
+
+    if content_width:
+        _set_table_width(table, content_width)
+        col_width = content_width // max_cols
+        for col in table.columns:
+            for cell in col.cells:
+                cell.width = col_width
 
     for i, row_tag in enumerate(rows):
         cells = row_tag.find_all(["td", "th"])
@@ -75,7 +95,7 @@ def _process_table(tag: Tag, document: Document):
                 _process_inline(child, para, bold=is_header)
 
 
-def html_to_docx(html: str, document: Document):
+def html_to_docx(html: str, document: Document, content_width: int | None = None):
     """Parse HTML and append content to the document."""
     if not html:
         return
@@ -107,7 +127,7 @@ def html_to_docx(html: str, document: Document):
                     _process_inline(child, p)
 
         elif name == "table":
-            _process_table(element, document)
+            _process_table(element, document, content_width)
 
         elif name in ("div", "section", "article"):
             for child in element.children:

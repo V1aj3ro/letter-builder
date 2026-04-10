@@ -117,7 +117,7 @@ def _build_header(section, org, sender_type: str):
     _clear_paragraph_borders(left_para)
     if org and org.logo_path and os.path.exists(org.logo_path):
         run = left_para.add_run()
-        run.add_picture(org.logo_path, width=Cm(5.0))
+        run.add_picture(org.logo_path, width=Cm(5.87), height=Cm(3.13))
 
     # Right: org or IP details
     right_para = right_cell.paragraphs[0]
@@ -187,18 +187,17 @@ def _build_footer(section, org):
     footer = section.footer
     footer.is_linked_to_previous = False
 
-    page_width = section.page_width
-
     para = footer.paragraphs[0]
     para.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    # Shift paragraph to start at left page edge and extend to right edge
+    # Shift paragraph to the left page edge
     pPr = para._p.get_or_add_pPr()
     ind = OxmlElement("w:ind")
     ind.set(qn("w:left"),  str(-_emu_to_twips(section.left_margin)))
     ind.set(qn("w:right"), str(-_emu_to_twips(section.right_margin)))
     pPr.append(ind)
+    # Fix dimensions to match reference: 20.97 × 3.79 cm
     run = para.add_run()
-    run.add_picture(org.footer_banner_path, width=page_width)
+    run.add_picture(org.footer_banner_path, width=Cm(20.97), height=Cm(3.79))
 
 
 async def generate_letter_docx(letter, org) -> str:
@@ -222,7 +221,7 @@ async def generate_letter_docx(letter, org) -> str:
     style.font.name = "Roboto"
     style.font.size = Pt(11)
     style.paragraph_format.space_before = Pt(0)
-    style.paragraph_format.space_after = Pt(0)
+    style.paragraph_format.space_after = Pt(6)
     style.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
 
     sender = getattr(letter, "sender_type", "ooo")
@@ -257,8 +256,9 @@ async def generate_letter_docx(letter, org) -> str:
     doc.add_paragraph()
 
     # ── Body ─────────────────────────────────────────
+    content_width = section.page_width - section.left_margin - section.right_margin
     if letter.body:
-        html_to_docx(letter.body, doc)
+        html_to_docx(letter.body, doc, content_width)
 
     doc.add_paragraph()
 

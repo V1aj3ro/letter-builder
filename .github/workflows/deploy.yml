@@ -18,19 +18,22 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
             set -e
+            export GIT_TERMINAL_PROMPT=0
 
-            if [ ! -d "/home/admen/corpcore/letter-builder" ]; then
-              git clone https://github.com/V1aj3ro/letter-builder.git /home/admen/corpcore/letter-builder
+            DEPLOY_DIR="/home/admen/corpcore/letter-builder"
+
+            if [ ! -d "$DEPLOY_DIR/.git" ]; then
+              git clone https://github.com/V1aj3ro/letter-builder.git "$DEPLOY_DIR"
             fi
 
-            cd /home/admen/corpcore/letter-builder
-
+            cd "$DEPLOY_DIR"
             git fetch origin main
             git reset --hard origin/main
 
             if [ ! -f ".env" ]; then
-              echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" > .env
-              echo "SECRET_KEY=${{ secrets.SECRET_KEY }}" >> .env
+              printf 'DB_PASSWORD=%s\nSECRET_KEY=%s\n' \
+                '${{ secrets.DB_PASSWORD }}' \
+                '${{ secrets.SECRET_KEY }}' > .env
             fi
 
             docker compose build --no-cache

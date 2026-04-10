@@ -224,7 +224,7 @@ async def generate_letter_docx(letter, org) -> str:
     style.font.name = "Roboto"
     style.font.size = Pt(11)
     style.paragraph_format.space_before = Pt(0)
-    style.paragraph_format.space_after = Pt(6)
+    style.paragraph_format.space_after  = Pt(0)
     style.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
 
     sender = getattr(letter, "sender_type", "ooo")
@@ -259,7 +259,8 @@ async def generate_letter_docx(letter, org) -> str:
     doc.add_paragraph()
 
     # ── Body ─────────────────────────────────────────
-    content_width = section.page_width - section.left_margin - section.right_margin
+    # section properties are in EMU; html_to_docx XML needs twips (1 twip = 635 EMU)
+    content_width = _emu_to_twips(section.page_width - section.left_margin - section.right_margin)
     if letter.body:
         html_to_docx(letter.body, doc, content_width)
 

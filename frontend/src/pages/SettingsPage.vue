@@ -180,7 +180,7 @@
           <div class="flex gap-3 items-center mb-3">
             <div>
               <strong style="font-size: 0.875rem; display: block; margin-bottom: 4px;">Шаблон письма (ООО)</strong>
-              <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-bottom: 6px;">
+              <div v-pre style="font-size: 0.78rem; color: var(--color-text-muted); margin-bottom: 6px;">
                 .docx с плейсхолдерами: <code>{{number}}</code> <code>{{date}}</code> <code>{{recipient}}</code>
                 <code>{{subject}}</code> <code>{{body}}</code> <code>{{signer_name}}</code>
                 <code>{{executor_name}}</code> <code>{{executor_phone}}</code>

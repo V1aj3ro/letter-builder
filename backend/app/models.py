@@ -37,6 +37,9 @@ class Organization(Base):
     logo_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     footer_banner_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     signature_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Шаблоны писем (.docx с Jinja2-плейсхолдерами)
+    template_ooo_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    template_ip_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
 
 class User(Base):

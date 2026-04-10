@@ -12,8 +12,12 @@ from ..models import User
 router = APIRouter()
 
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/app/uploads")
-ALLOWED_LOGO = {"image/png", "image/jpeg", "image/svg+xml"}
-ALLOWED_SIG = {"image/png", "image/jpeg"}
+ALLOWED_LOGO     = {"image/png", "image/jpeg", "image/svg+xml"}
+ALLOWED_SIG      = {"image/png", "image/jpeg"}
+ALLOWED_TEMPLATE = {
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/octet-stream",  # некоторые браузеры отправляют .docx без MIME
+}
 
 
 async def _get_or_create_org(db: AsyncSession) -> Organization:
@@ -132,6 +136,47 @@ async def upload_footer_banner(
         f.write(content)
 
     org.footer_banner_path = path
+    await db.commit()
+    await db.refresh(org)
+    return org
+
+
+async def _save_docx_upload(file: UploadFile, old_path: str | None) -> str:
+    """Validate, save a .docx upload and return the new file path."""
+    if file.content_type not in ALLOWED_TEMPLATE and not file.filename.endswith(".docx"):
+        raise HTTPException(status_code=400, detail="Требуется файл .docx")
+    if old_path and os.path.exists(old_path):
+        os.remove(old_path)
+    filename = f"{uuid.uuid4()}.docx"
+    path = os.path.join(UPLOAD_DIR, "org", filename)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    content = await file.read()
+    with open(path, "wb") as f:
+        f.write(content)
+    return path
+
+
+@router.post("/template-ooo", response_model=OrganizationOut)
+async def upload_template_ooo(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_admin_user),
+):
+    org = await _get_or_create_org(db)
+    org.template_ooo_path = await _save_docx_upload(file, org.template_ooo_path)
+    await db.commit()
+    await db.refresh(org)
+    return org
+
+
+@router.post("/template-ip", response_model=OrganizationOut)
+async def upload_template_ip(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_admin_user),
+):
+    org = await _get_or_create_org(db)
+    org.template_ip_path = await _save_docx_upload(file, org.template_ip_path)
     await db.commit()
     await db.refresh(org)
     return org

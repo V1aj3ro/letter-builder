@@ -33,6 +33,8 @@ export interface Organization {
   logo_path: string | null
   footer_banner_path: string | null
   signature_path: string | null
+  template_ooo_path: string | null
+  template_ip_path: string | null
 }
 
 export const useOrgStore = defineStore('org', () => {
@@ -75,5 +77,23 @@ export const useOrgStore = defineStore('org', () => {
     org.value = res.data
   }
 
-  return { org, loading, fetch, save, uploadLogo, uploadSignature, uploadFooterBanner }
+  async function uploadTemplateOoo(file: File) {
+    const form = new FormData()
+    form.append('file', file)
+    const res = await api.post('/organization/template-ooo', form)
+    org.value = res.data
+  }
+
+  async function uploadTemplateIp(file: File) {
+    const form = new FormData()
+    form.append('file', file)
+    const res = await api.post('/organization/template-ip', form)
+    org.value = res.data
+  }
+
+  return {
+    org, loading, fetch, save,
+    uploadLogo, uploadSignature, uploadFooterBanner,
+    uploadTemplateOoo, uploadTemplateIp,
+  }
 })

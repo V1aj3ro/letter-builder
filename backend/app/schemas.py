@@ -84,6 +84,8 @@ class OrganizationOut(BaseModel):
     logo_path: str | None
     footer_banner_path: str | None
     signature_path: str | None
+    template_ooo_path: str | None
+    template_ip_path: str | None
 
     model_config = {"from_attributes": True}
 

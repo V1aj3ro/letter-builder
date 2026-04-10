@@ -173,6 +173,46 @@
               <button class="btn btn-secondary btn-sm" @click="bannerInput?.click()">Загрузить баннер</button>
             </div>
           </div>
+
+          <hr style="margin: 16px 0; border-color: var(--color-border);" />
+
+          <!-- Template OOO upload -->
+          <div class="flex gap-3 items-center mb-3">
+            <div>
+              <strong style="font-size: 0.875rem; display: block; margin-bottom: 4px;">Шаблон письма (ООО)</strong>
+              <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-bottom: 6px;">
+                .docx с плейсхолдерами: <code>{{number}}</code> <code>{{date}}</code> <code>{{recipient}}</code>
+                <code>{{subject}}</code> <code>{{body}}</code> <code>{{signer_name}}</code>
+                <code>{{executor_name}}</code> <code>{{executor_phone}}</code>
+              </div>
+              <div v-if="org?.template_ooo_path" style="font-size: 0.85rem; color: var(--color-success);">
+                ✓ Шаблон загружен
+              </div>
+              <div v-else class="text-muted text-sm">Не загружен — будет использована стандартная генерация</div>
+            </div>
+            <div style="flex-shrink: 0;">
+              <input type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" @change="uploadTemplateOoo" style="display: none;" ref="templateOooInput" />
+              <button class="btn btn-secondary btn-sm" @click="templateOooInput?.click()">Загрузить шаблон ООО</button>
+            </div>
+          </div>
+
+          <!-- Template IP upload -->
+          <div class="flex gap-3 items-center">
+            <div>
+              <strong style="font-size: 0.875rem; display: block; margin-bottom: 4px;">Шаблон письма (ИП)</strong>
+              <div style="font-size: 0.78rem; color: var(--color-text-muted); margin-bottom: 6px;">
+                Те же плейсхолдеры, что и для ООО
+              </div>
+              <div v-if="org?.template_ip_path" style="font-size: 0.85rem; color: var(--color-success);">
+                ✓ Шаблон загружен
+              </div>
+              <div v-else class="text-muted text-sm">Не загружен — будет использована стандартная генерация</div>
+            </div>
+            <div style="flex-shrink: 0;">
+              <input type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" @change="uploadTemplateIp" style="display: none;" ref="templateIpInput" />
+              <button class="btn btn-secondary btn-sm" @click="templateIpInput?.click()">Загрузить шаблон ИП</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -266,6 +306,8 @@ const users = ref<any[]>([])
 const logoInput = ref<HTMLInputElement | null>(null)
 const sigInput = ref<HTMLInputElement | null>(null)
 const bannerInput = ref<HTMLInputElement | null>(null)
+const templateOooInput = ref<HTMLInputElement | null>(null)
+const templateIpInput = ref<HTMLInputElement | null>(null)
 
 const org = computed(() => orgStore.org)
 const allProjects = computed(() => projectsStore.projects)
@@ -313,6 +355,18 @@ async function uploadFooterBanner(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0]
   if (!file) return
   await orgStore.uploadFooterBanner(file)
+}
+
+async function uploadTemplateOoo(e: Event) {
+  const file = (e.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  await orgStore.uploadTemplateOoo(file)
+}
+
+async function uploadTemplateIp(e: Event) {
+  const file = (e.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  await orgStore.uploadTemplateIp(file)
 }
 
 async function approve(id: number) {

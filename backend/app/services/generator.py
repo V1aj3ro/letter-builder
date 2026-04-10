@@ -15,7 +15,7 @@ Layout:
 import os
 from datetime import date as date_type
 from docx import Document
-from docx.shared import Cm, Pt, RGBColor
+from docx.shared import Cm, Pt, Twips, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
@@ -136,7 +136,7 @@ def _build_header(section, org, sender_type: str):
     if org:
         if sender_type == "ip":
             if org.ip_full_name:
-                _line(org.ip_full_name, bold=True)
+                _line(org.ip_full_name)
             if org.ip_inn:
                 _line(f"ИНН {org.ip_inn}")
             if org.ip_ogrnip:
@@ -155,7 +155,7 @@ def _build_header(section, org, sender_type: str):
                 _line(f"Тел.: {org.ip_phone}")
         else:
             if org.name:
-                _line(org.name, bold=True)
+                _line(org.name)
             if org.inn:
                 _line(f"ИНН {org.inn}")
             if org.ogrn:
@@ -209,13 +209,13 @@ async def generate_letter_docx(letter, org) -> str:
     doc = Document()
     section = doc.sections[0]
 
-    # Page margins (bottom=0 so footer sticks to page edge)
-    section.top_margin = Cm(2.5)
-    section.bottom_margin = Cm(0)
-    section.left_margin = Cm(2.5)
-    section.right_margin = Cm(1.5)
-    section.header_distance = Cm(1.27)
-    section.footer_distance = Cm(0.5)
+    # Page margins — match reference document (twips from original XML)
+    section.top_margin    = Twips(1360)   # 2.41 cm
+    section.bottom_margin = Twips(0)      # 0 — footer sticks to page edge
+    section.left_margin   = Twips(1276)   # 2.26 cm
+    section.right_margin  = Twips(707)    # 1.25 cm
+    section.header_distance = Twips(720)  # 1.27 cm
+    section.footer_distance = Twips(291)  # 0.51 cm
 
     # Default font
     style = doc.styles["Normal"]
@@ -239,6 +239,8 @@ async def generate_letter_docx(letter, org) -> str:
         rec_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
         run = rec_para.add_run(letter.recipient.name)
         run.bold = True
+        run.font.name = "Roboto"
+        run.font.color.rgb = RGBColor(0, 0, 0)
 
     # ── Subject ──────────────────────────────────────
     if letter.subject:
@@ -246,6 +248,8 @@ async def generate_letter_docx(letter, org) -> str:
         subj_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
         run = subj_para.add_run(letter.subject)
         run.italic = True
+        run.font.name = "Roboto"
+        run.font.color.rgb = RGBColor(0, 0, 0)
 
     doc.add_paragraph()
 
@@ -280,7 +284,9 @@ async def generate_letter_docx(letter, org) -> str:
         left_text += f"\n{signer_role}"
     if short_name:
         left_text += f" {short_name}"
-    sl.add_run(left_text)
+    run = sl.add_run(left_text)
+    run.font.name = "Roboto"
+    run.font.color.rgb = RGBColor(0, 0, 0)
 
     # Middle: signature image
     sm = sig_table.cell(0, 1).paragraphs[0]
@@ -297,7 +303,9 @@ async def generate_letter_docx(letter, org) -> str:
     else:
         signer_name = org.signer_name if org else ""
     if signer_name:
-        sr.add_run(signer_name)
+        run = sr.add_run(signer_name)
+        run.font.name = "Roboto"
+        run.font.color.rgb = RGBColor(0, 0, 0)
 
     # ── Executor ─────────────────────────────────────
     doc.add_paragraph()

@@ -206,7 +206,7 @@
               <div class="upload-label">Шаблон ООО</div>
               <div class="upload-desc">
                 .docx с плейсхолдерами:
-                <span v-for="ph in placeholders" :key="ph"><code>{{ '{{' + ph + '}}' }}</code> </span>
+                <span v-for="ph in placeholders" :key="ph"><code>{{ placeholderLabel(ph) }}</code> </span>
               </div>
               <div v-if="org?.template_ooo_path" class="mt-1" style="font-size:12.5px; color:var(--success); display:flex; align-items:center; gap:4px;">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
@@ -417,6 +417,8 @@ async function deleteProject(id: number) {
   if (!confirm('Удалить проект и все его письма?')) return
   await projectsStore.remove(id)
 }
+
+function placeholderLabel(ph: string) { return '{{' + ph + '}}' }
 
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })

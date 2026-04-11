@@ -232,6 +232,62 @@ async def _generate_from_template(letter, org, template_path: str) -> str:
 
 # ── Programmatic (fallback) generation ───────────────────────────────────────
 
+def _set_table_fixed_widths(table, col_widths_emu: list[int]) -> None:
+    """
+    Apply fixed column widths to a table by setting tblGrid, tblW, tblLayout=fixed,
+    and per-cell tcW. python-docx cell.width alone is ignored by Word without these.
+    col_widths_emu: list of widths in EMU (python-docx native unit).
+    """
+    tbl = table._tbl
+
+    # ── tblPr: total width + fixed layout ────────────────────────────────────
+    tblPr = tbl.find(qn("w:tblPr"))
+    if tblPr is None:
+        tblPr = OxmlElement("w:tblPr")
+        tbl.insert(0, tblPr)
+
+    total_twips = sum(_emu_to_twips(w) for w in col_widths_emu)
+    for old in tblPr.findall(qn("w:tblW")):
+        tblPr.remove(old)
+    tblW = OxmlElement("w:tblW")
+    tblW.set(qn("w:w"), str(total_twips))
+    tblW.set(qn("w:type"), "dxa")
+    tblPr.append(tblW)
+
+    for old in tblPr.findall(qn("w:tblLayout")):
+        tblPr.remove(old)
+    tblLayout = OxmlElement("w:tblLayout")
+    tblLayout.set(qn("w:type"), "fixed")
+    tblPr.append(tblLayout)
+
+    # ── tblGrid: column grid ──────────────────────────────────────────────────
+    for old in tbl.findall(qn("w:tblGrid")):
+        tbl.remove(old)
+    tblGrid = OxmlElement("w:tblGrid")
+    for w in col_widths_emu:
+        gridCol = OxmlElement("w:gridCol")
+        gridCol.set(qn("w:w"), str(_emu_to_twips(w)))
+        tblGrid.append(gridCol)
+    # insert tblGrid right after tblPr
+    tbl_children = list(tbl)
+    tbl.insert(tbl_children.index(tblPr) + 1, tblGrid)
+
+    # ── per-cell tcW ─────────────────────────────────────────────────────────
+    for row in table.rows:
+        for i, cell in enumerate(row.cells):
+            tc = cell._tc
+            tcPr = tc.find(qn("w:tcPr"))
+            if tcPr is None:
+                tcPr = OxmlElement("w:tcPr")
+                tc.insert(0, tcPr)
+            for old in tcPr.findall(qn("w:tcW")):
+                tcPr.remove(old)
+            tcW = OxmlElement("w:tcW")
+            tcW.set(qn("w:w"), str(_emu_to_twips(col_widths_emu[i])))
+            tcW.set(qn("w:type"), "dxa")
+            tcPr.insert(0, tcW)
+
+
 def _clear_cell_borders(cell):
     tc = cell._tc
     tcPr = tc.get_or_add_tcPr()
@@ -277,10 +333,12 @@ def _build_header(section, org, sender_type: str):
     details_col  = table_width - logo_col
 
     htable = header.add_table(1, 2, table_width)
+
+    # Apply fixed widths via tblGrid/tblW/tcW so Word actually respects them
+    _set_table_fixed_widths(htable, [logo_col, details_col])
+
+    # Clear table borders and add left-indent so table starts at page edge
     tblPr = htable._tbl.find(qn("w:tblPr"))
-    if tblPr is None:
-        tblPr = OxmlElement("w:tblPr")
-        htable._tbl.insert(0, tblPr)
     tblBorders = OxmlElement("w:tblBorders")
     for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
         tag = OxmlElement(f"w:{edge}")
@@ -296,8 +354,6 @@ def _build_header(section, org, sender_type: str):
     right_cell = htable.cell(0, 1)
     _clear_cell_borders(left_cell)
     _clear_cell_borders(right_cell)
-    left_cell.width  = logo_col
-    right_cell.width = details_col
 
     _set_cell_valign_center(left_cell)
     left_para = left_cell.paragraphs[0]
@@ -482,7 +538,7 @@ async def _generate_programmatic(letter, org) -> str:
 
     doc.add_paragraph()
 
-    # Signature table — span the full content width
+    # Signature table — span the full content width with enforced fixed layout
     content_w = section.page_width - section.left_margin - section.right_margin
     sig_col1 = int(content_w * 0.44)   # "С уважением, роль организация"
     sig_col2 = int(content_w * 0.22)   # подпись (картинка)
@@ -491,9 +547,7 @@ async def _generate_programmatic(letter, org) -> str:
     sig_table = doc.add_table(rows=1, cols=3)
     for c in sig_table.rows[0].cells:
         _clear_cell_borders(c)
-    sig_table.rows[0].cells[0].width = sig_col1
-    sig_table.rows[0].cells[1].width = sig_col2
-    sig_table.rows[0].cells[2].width = sig_col3
+    _set_table_fixed_widths(sig_table, [sig_col1, sig_col2, sig_col3])
 
     sl = sig_table.cell(0, 0).paragraphs[0]
     sl.alignment = WD_ALIGN_PARAGRAPH.LEFT

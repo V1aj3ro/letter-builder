@@ -329,6 +329,26 @@ async function openEditor() {
           clearTimer()
           editorLoading.value = false
         },
+        async onRequestHistory() {
+          try {
+            const { data } = await api.get(`/onlyoffice/history/${letter.value!.id}`)
+            docEditor?.refreshHistory(data)
+          } catch {
+            docEditor?.refreshHistory({ currentVersion: 1, history: [] })
+          }
+        },
+        async onRequestHistoryData(event: any) {
+          const version = event.data
+          try {
+            const { data } = await api.get(`/onlyoffice/history-data/${letter.value!.id}/${version}`)
+            docEditor?.setHistoryData(data)
+          } catch {
+            docEditor?.setHistoryData({ version, error: 'Не удалось загрузить версию' })
+          }
+        },
+        onRequestHistoryClose() {
+          // no-op: editor stays open on current version
+        },
       },
     })
   } catch (err: any) {

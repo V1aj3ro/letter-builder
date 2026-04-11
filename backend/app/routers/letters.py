@@ -129,6 +129,45 @@ async def delete_letter(
     await db.commit()
 
 
+@router.post("/{lid}/duplicate", response_model=LetterOut, status_code=201)
+async def duplicate_letter(
+    lid: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_approved_user),
+):
+    import shutil
+    from ..services.generator import UPLOAD_DIR
+
+    source = await _get_letter(lid, db)
+    number = await _next_letter_number(db)
+
+    new_letter = Letter(
+        number=number,
+        project_id=source.project_id,
+        recipient_id=source.recipient_id,
+        created_by=current_user.id,
+        subject=source.subject,
+        body=source.body,
+        letter_date=source.letter_date,
+        sender_type=source.sender_type,
+        status="draft",
+    )
+    db.add(new_letter)
+    await db.commit()
+    await db.refresh(new_letter)
+
+    # Copy docx file so the duplicate opens with the same content
+    if source.docx_path and os.path.exists(source.docx_path):
+        out_dir = os.path.join(UPLOAD_DIR, "letters", str(new_letter.id))
+        os.makedirs(out_dir, exist_ok=True)
+        new_docx = os.path.join(out_dir, f"letter_{number}.docx")
+        shutil.copy2(source.docx_path, new_docx)
+        new_letter.docx_path = new_docx
+        await db.commit()
+
+    return await _get_letter(new_letter.id, db)
+
+
 @router.post("/{lid}/generate", response_model=LetterOut)
 async def generate_letter(
     lid: int,

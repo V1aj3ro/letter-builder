@@ -66,5 +66,11 @@ export const useLettersStore = defineStore('letters', () => {
     return res.data as Letter
   }
 
-  return { letters, current, fetchByProject, fetchOne, create, update, remove, markSent }
+  async function duplicate(id: number): Promise<Letter> {
+    const res = await api.post(`/letters/${id}/duplicate`)
+    letters.value.unshift(res.data)
+    return res.data
+  }
+
+  return { letters, current, fetchByProject, fetchOne, create, update, remove, markSent, duplicate }
 })

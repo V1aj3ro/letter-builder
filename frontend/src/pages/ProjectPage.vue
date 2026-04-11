@@ -88,7 +88,25 @@
               <rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
             </svg>
             <span class="section-title">Письма</span>
-            <span class="text-subtle text-xs ml-auto">{{ letters.length }} {{ pluralLetters(letters.length) }}</span>
+            <span class="text-subtle text-xs ml-auto">{{ filteredLetters.length }} {{ pluralLetters(filteredLetters.length) }}</span>
+          </div>
+
+          <!-- Search & filter bar -->
+          <div class="flex gap-2 mb-3" style="flex-wrap:wrap;">
+            <input
+              v-model="searchQuery"
+              type="text"
+              placeholder="Поиск по теме или адресату..."
+              style="flex:1; min-width:180px; padding:7px 10px; border:1px solid var(--border); border-radius:var(--r); font-size:13.5px; font-family:inherit; background:var(--surface); color:var(--text);"
+            />
+            <select
+              v-model="statusFilter"
+              style="padding:7px 10px; border:1px solid var(--border); border-radius:var(--r); font-size:13.5px; font-family:inherit; background:var(--surface); color:var(--text);"
+            >
+              <option value="all">Все статусы</option>
+              <option value="draft">Черновики</option>
+              <option value="sent">Отправленные</option>
+            </select>
           </div>
 
           <div v-if="!letters.length" class="empty-state" style="padding: 32px 16px;">
@@ -99,7 +117,12 @@
             <p class="empty-state-text">Создайте первое письмо для этого проекта</p>
           </div>
 
-          <div v-else class="table-wrapper">
+          <div v-else>
+            <div v-if="!filteredLetters.length && searchQuery" class="empty-state" style="padding:24px 16px;">
+              <div class="empty-state-title">Ничего не найдено</div>
+              <p class="empty-state-text">Попробуйте изменить запрос или фильтр</p>
+            </div>
+            <div v-else class="table-wrapper">
             <table class="data-table">
               <thead>
                 <tr>
@@ -112,7 +135,7 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="l in letters" :key="l.id">
+                <tr v-for="l in filteredLetters" :key="l.id">
                   <td class="font-semibold" style="color:var(--text);">{{ l.number }}</td>
                   <td class="text-muted">{{ formatDate(l.letter_date) }}</td>
                   <td>
@@ -133,6 +156,14 @@
                         {{ l.status === 'draft' ? 'Редактировать' : 'Открыть' }}
                       </RouterLink>
                       <button
+                        class="btn btn-ghost btn-sm"
+                        @click="duplicateLetter(l.id)"
+                        :disabled="duplicating === l.id"
+                        title="Дублировать"
+                      >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                      </button>
+                      <button
                         v-if="l.status === 'draft'"
                         class="btn btn-danger btn-sm"
                         @click="deleteLetter(l.id)"
@@ -142,6 +173,7 @@
                 </tr>
               </tbody>
             </table>
+            </div>
           </div>
         </div>
 
@@ -152,18 +184,22 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import AppLayout from '../components/layout/AppLayout.vue'
 import { useProjectsStore } from '../stores/projects'
 import { useRecipientsStore } from '../stores/recipients'
 import { useLettersStore } from '../stores/letters'
 
 const route = useRoute()
+const router = useRouter()
 const projectsStore = useProjectsStore()
 const recipientsStore = useRecipientsStore()
 const lettersStore = useLettersStore()
 
 const loading = ref(true)
+const searchQuery  = ref('')
+const statusFilter = ref<'all' | 'draft' | 'sent'>('all')
+const duplicating  = ref<number | null>(null)
 const addingRecipient = ref(false)
 const selectedAdd = ref<number | null>(null)
 const newRecipientName = ref('')
@@ -171,6 +207,16 @@ const selectedDefault = ref<number | null>(null)
 
 const project = computed(() => projectsStore.current)
 const letters = computed(() => lettersStore.letters)
+const filteredLetters = computed(() => {
+  const q = searchQuery.value.toLowerCase().trim()
+  return letters.value.filter(l => {
+    const matchStatus = statusFilter.value === 'all' || l.status === statusFilter.value
+    const matchSearch = !q
+      || (l.subject ?? '').toLowerCase().includes(q)
+      || (l.recipient?.name ?? '').toLowerCase().includes(q)
+    return matchStatus && matchSearch
+  })
+})
 const allRecipients = computed(() => recipientsStore.recipients)
 const availableRecipients = computed(() =>
   allRecipients.value.filter(r => !project.value?.recipients?.some(pr => pr.id === r.id))
@@ -208,6 +254,16 @@ async function addRecipient() {
 async function removeRecipient(rid: number) {
   if (!project.value) return
   await projectsStore.removeRecipient(project.value.id, rid)
+}
+
+async function duplicateLetter(id: number) {
+  duplicating.value = id
+  try {
+    const newLetter = await lettersStore.duplicate(id)
+    router.push(`/letters/${newLetter.id}/edit`)
+  } finally {
+    duplicating.value = null
+  }
 }
 
 async function deleteLetter(id: number) {

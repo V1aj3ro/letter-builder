@@ -57,6 +57,52 @@ def _verify_dl_token(letter_id: int, token: str) -> bool:
     return hmac.compare_digest(_dl_token(letter_id), token)
 
 
+def _hist_token(lid: int, ts: int) -> str:
+    """HMAC token for serving a specific history version file."""
+    msg = f"hist:{lid}:{ts}".encode()
+    return hmac.new(_DL_SECRET.encode(), msg, hashlib.sha256).hexdigest()[:32]
+
+
+def _save_version(lid: int, current_path: str) -> None:
+    """Copy current docx to versions dir and update meta.json before overwrite."""
+    import json
+    import shutil
+    from ..services.generator import UPLOAD_DIR
+
+    versions_dir = os.path.join(UPLOAD_DIR, "letters", str(lid), "versions")
+    os.makedirs(versions_dir, exist_ok=True)
+
+    meta_path = os.path.join(versions_dir, "meta.json")
+    meta: list = []
+    if os.path.exists(meta_path):
+        try:
+            with open(meta_path) as f:
+                meta = json.load(f)
+        except Exception:
+            meta = []
+
+    ts = int(time.time())
+    version_num = len(meta) + 1
+    filename = f"v{version_num}_{ts}.docx"
+    dest = os.path.join(versions_dir, filename)
+
+    try:
+        shutil.copy2(current_path, dest)
+    except Exception as e:
+        log.warning("Could not save version snapshot: %s", e)
+        return
+
+    meta.append({
+        "version": version_num,
+        "ts": ts,
+        "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts)),
+        "file": filename,
+    })
+    with open(meta_path, "w") as f:
+        json.dump(meta, f)
+    log.info("Saved version %d for letter %d", version_num, lid)
+
+
 def _jwt_sign(payload: dict) -> str | None:
     """Sign the editor config with JWT if ONLYOFFICE_JWT_SECRET is set."""
     if not ONLYOFFICE_JWT_SECRET:
@@ -267,6 +313,9 @@ async def onlyoffice_callback(
             async with httpx.AsyncClient(timeout=30) as client:
                 resp = await client.get(download_url)
                 resp.raise_for_status()
+            # Snapshot current version before overwriting
+            if os.path.exists(output_path):
+                _save_version(lid, output_path)
             with open(output_path, "wb") as f:
                 f.write(resp.content)
             letter.docx_path = output_path
@@ -278,3 +327,110 @@ async def onlyoffice_callback(
             return {"error": 1}
 
     return {"error": 0}
+
+
+@router.get("/history/{lid}")
+async def get_history(
+    lid: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_approved_user),
+):
+    """Return OnlyOffice-compatible history list for a letter."""
+    import json
+    from ..services.generator import UPLOAD_DIR
+
+    await _get_letter_full(lid, db)  # 404 check
+    versions_dir = os.path.join(UPLOAD_DIR, "letters", str(lid), "versions")
+    meta_path = os.path.join(versions_dir, "meta.json")
+
+    if not os.path.exists(meta_path):
+        return {"currentVersion": 1, "history": []}
+
+    with open(meta_path) as f:
+        meta = json.load(f)
+
+    history = [
+        {
+            "version": e["version"],
+            "created": e["created"],
+            "user": {"id": "0", "name": ""},
+            "serverVersion": "7.0.0",
+        }
+        for e in meta
+    ]
+    return {"currentVersion": len(meta) + 1, "history": history}
+
+
+@router.get("/history-data/{lid}/{version}")
+async def get_history_data(
+    lid: int,
+    version: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_approved_user),
+):
+    """Return URL for a specific history version (called by OnlyOffice editor)."""
+    import json
+    from ..services.generator import UPLOAD_DIR
+
+    versions_dir = os.path.join(UPLOAD_DIR, "letters", str(lid), "versions")
+    meta_path = os.path.join(versions_dir, "meta.json")
+    if not os.path.exists(meta_path):
+        raise HTTPException(status_code=404, detail="No history")
+
+    with open(meta_path) as f:
+        meta = json.load(f)
+
+    entry = next((e for e in meta if e["version"] == version), None)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Version not found")
+
+    base = APP_PUBLIC_URL
+    token = _hist_token(lid, entry["ts"])
+    result: dict = {
+        "version": version,
+        "url": f"{base}/api/onlyoffice/history-file/{lid}/{entry['ts']}?token={token}",
+    }
+    # Provide previous version URL for diff display
+    prev = next((e for e in meta if e["version"] == version - 1), None)
+    if prev:
+        prev_token = _hist_token(lid, prev["ts"])
+        result["urlPrev"] = f"{base}/api/onlyoffice/history-file/{lid}/{prev['ts']}?token={prev_token}"
+
+    return result
+
+
+@router.get("/history-file/{lid}/{ts}")
+async def get_history_file(
+    lid: int,
+    ts: int,
+    token: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Serve a specific version file to OnlyOffice (HMAC-protected, no user auth)."""
+    import json
+    from ..services.generator import UPLOAD_DIR
+
+    if not hmac.compare_digest(_hist_token(lid, ts), token):
+        raise HTTPException(status_code=403, detail="Invalid token")
+
+    versions_dir = os.path.join(UPLOAD_DIR, "letters", str(lid), "versions")
+    meta_path = os.path.join(versions_dir, "meta.json")
+    if not os.path.exists(meta_path):
+        raise HTTPException(status_code=404, detail="No history")
+
+    with open(meta_path) as f:
+        meta = json.load(f)
+
+    entry = next((e for e in meta if e["ts"] == ts), None)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Version not found")
+
+    file_path = os.path.join(versions_dir, entry["file"])
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Version file not found")
+
+    return FileResponse(
+        file_path,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename=f"letter_{lid}_v{entry['version']}.docx",
+    )

@@ -12,6 +12,7 @@
           <span v-if="pendingCount" class="badge badge-pending" style="margin-left:6px; padding:1px 7px;">{{ pendingCount }}</span>
         </button>
         <button :class="['tab-btn', activeTab === 'projects' && 'active']" @click="activeTab = 'projects'">Проекты</button>
+        <button :class="['tab-btn', activeTab === 'recipients' && 'active']" @click="activeTab = 'recipients'">Адресаты</button>
       </div>
 
       <!-- ── ORG TAB ──────────────────────────────────────────────────────── -->
@@ -214,7 +215,8 @@
               </div>
               <div v-else class="upload-desc mt-1">Не загружен — используется стандартная генерация</div>
             </div>
-            <div>
+            <div class="flex gap-2">
+              <RouterLink v-if="org?.template_ooo_path" to="/settings/template/ooo" class="btn btn-primary btn-sm">Редактировать</RouterLink>
               <input type="file" accept=".docx" @change="uploadTemplateOoo" style="display:none;" ref="templateOooInput" />
               <button class="btn btn-secondary btn-sm" @click="templateOooInput?.click()">Загрузить</button>
             </div>
@@ -230,7 +232,8 @@
               </div>
               <div v-else class="upload-desc mt-1">Не загружен — используется стандартная генерация</div>
             </div>
-            <div>
+            <div class="flex gap-2">
+              <RouterLink v-if="org?.template_ip_path" to="/settings/template/ip" class="btn btn-primary btn-sm">Редактировать</RouterLink>
               <input type="file" accept=".docx" @change="uploadTemplateIp" style="display:none;" ref="templateIpInput" />
               <button class="btn btn-secondary btn-sm" @click="templateIpInput?.click()">Загрузить</button>
             </div>
@@ -322,6 +325,33 @@
         </div>
       </div>
 
+      <!-- ── RECIPIENTS TAB ──────────────────────────────────────────────── -->
+      <div v-if="activeTab === 'recipients'">
+        <div class="card">
+          <div v-if="!allRecipients.length" class="empty-state" style="padding:24px;">
+            <div class="empty-state-title">Нет адресатов</div>
+          </div>
+          <div v-else class="table-wrapper">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Адресат</th>
+                  <th style="width:80px;"></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="r in allRecipients" :key="r.id">
+                  <td class="font-medium" style="color:var(--text);">{{ r.name }}</td>
+                  <td>
+                    <button class="btn btn-danger btn-sm" @click="deleteRecipient(r.id)">Удалить</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
     </template>
   </AppLayout>
 </template>
@@ -332,13 +362,15 @@ import AppLayout from '../components/layout/AppLayout.vue'
 import { useAuthStore } from '../stores/auth'
 import { useOrgStore } from '../stores/org'
 import { useProjectsStore } from '../stores/projects'
+import { useRecipientsStore } from '../stores/recipients'
 import api from '../api'
 
 const auth = useAuthStore()
 const orgStore = useOrgStore()
 const projectsStore = useProjectsStore()
+const recipientsStore = useRecipientsStore()
 
-const activeTab = ref<'org' | 'users' | 'projects'>('org')
+const activeTab = ref<'org' | 'users' | 'projects' | 'recipients'>('org')
 const orgTab = ref<'ooo' | 'ip' | 'files'>('ooo')
 const orgSaved = ref(false)
 const users = ref<any[]>([])
@@ -350,6 +382,7 @@ const templateIpInput = ref<HTMLInputElement | null>(null)
 
 const org = computed(() => orgStore.org)
 const allProjects = computed(() => projectsStore.projects)
+const allRecipients = computed(() => recipientsStore.recipients)
 const pendingCount = computed(() => users.value.filter(u => !u.is_approved).length)
 
 const placeholders = ['number','date','recipient','subject','body','signer_role','signer_name','executor_name','executor_phone']
@@ -364,7 +397,7 @@ const orgForm = reactive({
 })
 
 onMounted(async () => {
-  await Promise.all([orgStore.fetch(), projectsStore.fetchAll(), fetchUsers()])
+  await Promise.all([orgStore.fetch(), projectsStore.fetchAll(), fetchUsers(), recipientsStore.fetchAll()])
   if (org.value) Object.assign(orgForm, org.value)
 })
 
@@ -416,6 +449,11 @@ async function deleteUser(id: number) {
 async function deleteProject(id: number) {
   if (!confirm('Удалить проект и все его письма?')) return
   await projectsStore.remove(id)
+}
+
+async function deleteRecipient(id: number) {
+  if (!confirm('Удалить адресата? Он будет отвязан от всех писем.')) return
+  await recipientsStore.remove(id)
 }
 
 function placeholderLabel(ph: string) { return '{{' + ph + '}}' }

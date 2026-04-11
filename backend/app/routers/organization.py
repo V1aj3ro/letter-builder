@@ -1,6 +1,13 @@
+import hashlib
+import hmac as hmac_module
+import logging
 import os
+import time
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from ..database import get_db
@@ -8,6 +15,29 @@ from ..models import Organization
 from ..schemas import OrganizationOut, OrganizationUpdate
 from ..dependencies import get_approved_user, get_admin_user
 from ..models import User
+
+log = logging.getLogger(__name__)
+
+ONLYOFFICE_SERVER    = os.environ.get("ONLYOFFICE_SERVER", "https://office.demo.corpcore.ru")
+APP_PUBLIC_URL       = os.environ.get("APP_PUBLIC_URL", "").rstrip("/")
+_TPL_SECRET          = os.environ.get("SECRET_KEY", "changeme")
+ONLYOFFICE_JWT_SECRET = os.environ.get("ONLYOFFICE_JWT_SECRET", "")
+
+
+def _tpl_token(ttype: str) -> str:
+    msg = f"tpl:{ttype}".encode()
+    return hmac_module.new(_TPL_SECRET.encode(), msg, hashlib.sha256).hexdigest()[:32]
+
+
+def _tpl_jwt_sign(payload: dict) -> str | None:
+    if not ONLYOFFICE_JWT_SECRET:
+        return None
+    try:
+        from jose import jwt as jose_jwt
+        return jose_jwt.encode(payload, ONLYOFFICE_JWT_SECRET, algorithm="HS256")
+    except Exception as e:
+        log.warning("Template JWT signing failed: %s", e)
+        return None
 
 router = APIRouter()
 
@@ -180,3 +210,124 @@ async def upload_template_ip(
     await db.commit()
     await db.refresh(org)
     return org
+
+
+# ── Template OnlyOffice editor ────────────────────────────────────────────────
+
+@router.get("/template-config/{ttype}")
+async def get_template_editor_config(
+    ttype: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_admin_user),
+):
+    if ttype not in ("ooo", "ip"):
+        raise HTTPException(status_code=400, detail="ttype must be 'ooo' or 'ip'")
+    org = await _get_or_create_org(db)
+    tpl_path = org.template_ooo_path if ttype == "ooo" else org.template_ip_path
+    if not tpl_path or not os.path.exists(tpl_path):
+        raise HTTPException(status_code=404, detail="Шаблон не загружен — сначала загрузите .docx файл")
+
+    base = APP_PUBLIC_URL
+    token = _tpl_token(ttype)
+    doc_key = f"template_{ttype}_{int(time.time())}"
+    title = "Шаблон ООО.docx" if ttype == "ooo" else "Шаблон ИП.docx"
+
+    config = {
+        "document": {
+            "fileType": "docx",
+            "key": doc_key,
+            "title": title,
+            "url": f"{base}/api/organization/template-document/{ttype}?token={token}",
+            "permissions": {"edit": True, "download": True, "print": True, "review": False},
+        },
+        "documentType": "word",
+        "editorConfig": {
+            "callbackUrl": f"{base}/api/organization/template-callback/{ttype}",
+            "mode": "edit",
+            "lang": "ru",
+            "user": {"id": str(current_user.id), "name": current_user.full_name},
+            "customization": {
+                "autosave": True,
+                "forcesave": True,
+                "logo": {"visible": False},
+                "chat": {"visible": False},
+                "feedback": {"visible": False},
+                "help": {"visible": False},
+                "hideRightMenu": True,
+                "toolbarNoTabs": False,
+                "zoom": 100,
+            },
+        },
+    }
+    jwt_token = _tpl_jwt_sign(config)
+    if jwt_token:
+        config["token"] = jwt_token
+    return {"server": ONLYOFFICE_SERVER, "config": config}
+
+
+@router.get("/template-document/{ttype}")
+async def serve_template_document(
+    ttype: str,
+    token: str,
+    db: AsyncSession = Depends(get_db),
+):
+    if ttype not in ("ooo", "ip"):
+        raise HTTPException(status_code=400, detail="Invalid ttype")
+    if not hmac_module.compare_digest(_tpl_token(ttype), token):
+        raise HTTPException(status_code=403, detail="Invalid token")
+    org = await _get_or_create_org(db)
+    tpl_path = org.template_ooo_path if ttype == "ooo" else org.template_ip_path
+    if not tpl_path or not os.path.exists(tpl_path):
+        raise HTTPException(status_code=404, detail="Template not found")
+    return FileResponse(
+        tpl_path,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename=f"template_{ttype}.docx",
+    )
+
+
+@router.post("/template-callback/{ttype}")
+async def template_callback(
+    ttype: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    if ttype not in ("ooo", "ip"):
+        raise HTTPException(status_code=400, detail="Invalid ttype")
+    try:
+        body = await request.json()
+    except Exception:
+        return {"error": 0}
+
+    # JWT verification
+    if ONLYOFFICE_JWT_SECRET:
+        try:
+            from jose import jwt as jose_jwt
+            auth_hdr = request.headers.get("Authorization", "")
+            tok = auth_hdr[7:] if auth_hdr.startswith("Bearer ") else body.get("token", "")
+            if tok:
+                jose_jwt.decode(tok, ONLYOFFICE_JWT_SECRET, algorithms=["HS256"])
+        except Exception as e:
+            log.warning("Template callback JWT failed: %s", e)
+            raise HTTPException(status_code=403, detail="Invalid JWT")
+
+    status = body.get("status")
+    if status in (2, 6):
+        download_url = body.get("url")
+        if not download_url:
+            return {"error": 0}
+        org = await _get_or_create_org(db)
+        tpl_path = org.template_ooo_path if ttype == "ooo" else org.template_ip_path
+        if not tpl_path:
+            return {"error": 0}
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.get(download_url)
+                resp.raise_for_status()
+            with open(tpl_path, "wb") as f:
+                f.write(resp.content)
+            log.info("Template %s saved from OnlyOffice (%d bytes)", ttype, len(resp.content))
+        except Exception as exc:
+            log.error("Failed to save template %s: %s", ttype, exc)
+            return {"error": 1}
+    return {"error": 0}

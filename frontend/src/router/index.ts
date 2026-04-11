@@ -12,6 +12,7 @@ const routes = [
   { path: '/letters/:id/edit', component: () => import('../pages/LetterEditorPage.vue'), meta: { requiresAuth: true } },
   { path: '/profile', component: () => import('../pages/ProfilePage.vue'), meta: { requiresAuth: true } },
   { path: '/settings', component: () => import('../pages/SettingsPage.vue'), meta: { requiresAuth: true, requiresAdmin: true } },
+  { path: '/settings/template/:type', component: () => import('../pages/TemplateEditorPage.vue'), meta: { requiresAuth: true, requiresAdmin: true } },
 ]
 
 const router = createRouter({

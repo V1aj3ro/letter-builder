@@ -51,6 +51,16 @@ def _emu_to_twips(emu: int) -> int:
     return int(emu / 635)
 
 
+def _name_to_initials(full_name: str) -> str:
+    """'Иванов Иван Иванович' → 'Иванов И.И.'  (works for 2- and 3-part names)"""
+    parts = full_name.strip().split()
+    if not parts:
+        return full_name
+    last = parts[0]
+    initials = "".join(p[0].upper() + "." for p in parts[1:] if p)
+    return f"{last} {initials}" if initials else last
+
+
 # ── Template-based generation ─────────────────────────────────────────────────
 
 async def _build_body_subdoc(html: str, tpl, content_width: int):
@@ -552,14 +562,16 @@ async def _generate_programmatic(letter, org) -> str:
     sl = sig_table.cell(0, 0).paragraphs[0]
     sl.alignment = WD_ALIGN_PARAGRAPH.LEFT
     if sender == "ip":
-        signer_role = org.ip_signer_role if org else ""
-        short_name  = ""  # ФИО ИП уже в правой ячейке; роль содержит "ИП ФИО"
+        # ИП: "С уважением," слева, инициалы справа — без роли и названия орг.
+        left_text   = "С уважением,"
+        signer_name = _name_to_initials(org.ip_signer_name or "") if org else ""
     else:
         signer_role = org.signer_role if org else ""
         short_name  = org.short_name  if org else ""
-    left_text = "С уважением,"
-    if signer_role: left_text += f"\n{signer_role}"
-    if short_name:  left_text += f"\n{short_name}"
+        left_text   = "С уважением,"
+        if signer_role: left_text += f"\n{signer_role}"
+        if short_name:  left_text  += f"\n{short_name}"
+        signer_name = (org.signer_name or "") if org else ""
     run = sl.add_run(left_text)
     run.font.name = "Roboto"
     run.font.color.rgb = RGBColor(0, 0, 0)
@@ -572,7 +584,6 @@ async def _generate_programmatic(letter, org) -> str:
 
     sr = sig_table.cell(0, 2).paragraphs[0]
     sr.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    signer_name = (org.ip_signer_name if sender == "ip" else org.signer_name) if org else ""
     if signer_name:
         run = sr.add_run(signer_name)
         run.font.name = "Roboto"

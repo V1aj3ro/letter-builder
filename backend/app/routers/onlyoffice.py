@@ -150,7 +150,7 @@ async def get_editor_config(
             },
             "customization": {
                 "autosave": True,
-                "forcesave": False,
+                "forcesave": True,
                 "logo": {"visible": False},
                 "chat": {"visible": False},
                 "feedback": {"visible": False},

@@ -125,15 +125,15 @@
 
             <!-- Кнопки действий -->
             <div class="lf-actions">
-              <!-- Stale: обновить -->
-              <button v-if="docStale && !readonly" class="btn btn-primary btn-sm" @click="regenerateAndOpen" :disabled="editorLoading" title="Реквизиты изменились — обновить документ">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.28-6.24"/></svg>
-                Обновить
+              <!-- Сохранить мета (всегда доступно) -->
+              <button v-if="!readonly" class="btn btn-secondary btn-sm" @click="saveMeta" :disabled="saving">
+                {{ saving ? '...' : 'Сохранить' }}
               </button>
 
-              <!-- Сохранить мета -->
-              <button v-if="!docStale && !readonly" class="btn btn-secondary btn-sm" @click="saveMeta" :disabled="saving">
-                {{ saving ? '...' : 'Сохранить' }}
+              <!-- Обновить из шаблона (деструктивно — с предупреждением) -->
+              <button v-if="!readonly" class="btn btn-ghost btn-sm" @click="confirmRegenerate" :disabled="editorLoading" title="Пересоздать документ из шаблона">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.28-6.24"/></svg>
+                Обновить шаблон
               </button>
 
               <!-- Скачать -->
@@ -231,23 +231,6 @@ const form = reactive({
   sender_type:  'ooo',
 })
 
-// Snapshot of form when document was last generated — used to detect staleness
-const lastGenSnapshot = ref('')
-
-// Whether form has changed since last generation
-const docStale = computed(() => {
-  if (!letter.value) return false
-  return formSnapshot() !== lastGenSnapshot.value
-})
-
-function formSnapshot() {
-  return JSON.stringify({
-    recipient_id: form.recipient_id,
-    subject:      form.subject,
-    letter_date:  form.letter_date,
-    sender_type:  form.sender_type,
-  })
-}
 
 // ── Computed ──────────────────────────────────────────────────────────────────
 
@@ -316,7 +299,6 @@ async function openEditor() {
       params: { regenerate: _pendingRegen },
     })
     _pendingRegen = false
-    lastGenSnapshot.value = formSnapshot()
 
     await loadApiScript(data.server)
 
@@ -404,6 +386,11 @@ async function saveMeta() {
   }
 }
 
+async function confirmRegenerate() {
+  if (!confirm('Пересоздать документ из шаблона?\n\nВсе правки, сделанные в редакторе, будут заменены новым документом на основе текущих реквизитов.')) return
+  await regenerateAndOpen()
+}
+
 async function regenerateAndOpen() {
   if (!letter.value) return
   saving.value = true
@@ -478,7 +465,6 @@ onMounted(async () => {
     await projectsStore.fetchOne(l.project_id)
     project.value = projectsStore.current
 
-    lastGenSnapshot.value = formSnapshot()
     initLoading.value = false
     await nextTick()
     await openEditor()

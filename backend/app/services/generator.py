@@ -268,11 +268,15 @@ def _build_header(section, org, sender_type: str):
     header = section.header
     header.is_linked_to_previous = False
 
-    page_width = section.page_width
-    logo_col   = Cm(5.5)
-    details_col = page_width - logo_col
+    page_width   = section.page_width
+    right_margin = section.right_margin
+    logo_col     = Cm(5.5)
+    # Table starts at physical page left (via tblInd offset) and must end
+    # at the right margin boundary, not the physical page edge.
+    table_width  = page_width - right_margin
+    details_col  = table_width - logo_col
 
-    htable = header.add_table(1, 2, page_width)
+    htable = header.add_table(1, 2, table_width)
     tblPr = htable._tbl.find(qn("w:tblPr"))
     if tblPr is None:
         tblPr = OxmlElement("w:tblPr")
@@ -478,26 +482,30 @@ async def _generate_programmatic(letter, org) -> str:
 
     doc.add_paragraph()
 
-    # Signature table
+    # Signature table — span the full content width
+    content_w = section.page_width - section.left_margin - section.right_margin
+    sig_col1 = int(content_w * 0.44)   # "С уважением, роль организация"
+    sig_col2 = int(content_w * 0.22)   # подпись (картинка)
+    sig_col3 = content_w - sig_col1 - sig_col2  # ФИО подписанта
+
     sig_table = doc.add_table(rows=1, cols=3)
     for c in sig_table.rows[0].cells:
         _clear_cell_borders(c)
-    sig_table.columns[0].width = Cm(6)
-    sig_table.columns[1].width = Cm(4)
-    sig_table.columns[2].width = Cm(6)
+    sig_table.rows[0].cells[0].width = sig_col1
+    sig_table.rows[0].cells[1].width = sig_col2
+    sig_table.rows[0].cells[2].width = sig_col3
 
     sl = sig_table.cell(0, 0).paragraphs[0]
     sl.alignment = WD_ALIGN_PARAGRAPH.LEFT
     if sender == "ip":
-        signer_role      = org.ip_signer_role if org else ""
-        signer_name_short = org.ip_full_name  if org else ""
-        short_name = f"ИП {signer_name_short}" if signer_name_short else ""
+        signer_role = org.ip_signer_role if org else ""
+        short_name  = ""  # ФИО ИП уже в правой ячейке; роль содержит "ИП ФИО"
     else:
-        signer_role = org.signer_role  if org else ""
-        short_name  = org.short_name   if org else ""
+        signer_role = org.signer_role if org else ""
+        short_name  = org.short_name  if org else ""
     left_text = "С уважением,"
     if signer_role: left_text += f"\n{signer_role}"
-    if short_name:  left_text += f" {short_name}"
+    if short_name:  left_text += f"\n{short_name}"
     run = sl.add_run(left_text)
     run.font.name = "Roboto"
     run.font.color.rgb = RGBColor(0, 0, 0)

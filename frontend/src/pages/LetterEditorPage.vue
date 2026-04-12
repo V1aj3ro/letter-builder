@@ -258,12 +258,12 @@ let _saveTimer: ReturnType<typeof setTimeout> | null = null
 const SAVE_TIMEOUT = 10_000 // 10 seconds
 
 /**
- * Request OnlyOffice to save the document and wait for confirmation.
- * Returns immediately if editor is not open.
- * Resolves with true if saved, false if timeout (with warning shown).
+ * Request OnlyOffice to save the document via Command Service.
+ * Calls the backend /onlyoffice/forcesave/{lid} which sends forcesave to OnlyOffice.
+ * Resolves with true if saved, false if error/timeout.
  */
 function requestOnlyOfficeSave(): Promise<boolean> {
-  if (!docEditor) return Promise.resolve(true) // No editor — nothing to save
+  if (!docEditor || !letter.value) return Promise.resolve(true) // No editor — nothing to save
 
   return new Promise((resolve) => {
     _saveResolve = resolve
@@ -276,13 +276,16 @@ function requestOnlyOfficeSave(): Promise<boolean> {
       resolve(false) // Timeout — action proceeds with warning
     }, SAVE_TIMEOUT)
 
-    try {
-      docEditor.requestSave()
-    } catch (err) {
-      console.warn('[OnlyOffice] Failed to request save:', err)
-      _saveResolve = null
-      if (_saveTimer) { clearTimeout(_saveTimer); _saveTimer = null }
-      resolve(true) // Don't block the flow on error
+    // Send forcesave command to backend → OnlyOffice Command Service
+    const lid = letter.value?.id
+    if (lid) {
+      api.post(`/onlyoffice/forcesave/${lid}`)
+        .catch((err) => {
+          console.warn('[OnlyOffice] Forcesave request failed:', err?.response?.data ?? err.message)
+          _saveResolve = null
+          if (_saveTimer) { clearTimeout(_saveTimer); _saveTimer = null }
+          resolve(false) // Error — action proceeds with warning
+        })
     }
   })
 }

@@ -44,6 +44,9 @@ APP_PUBLIC_URL = os.environ.get("APP_PUBLIC_URL", "").rstrip("/")
 _DL_SECRET = os.environ.get("SECRET_KEY", "changeme")
 ONLYOFFICE_JWT_SECRET = os.environ.get("ONLYOFFICE_JWT_SECRET", "")
 
+# In-memory store: letter_id -> current doc_key (for forcesave command)
+_active_doc_keys: dict[int, str] = {}
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -169,8 +172,13 @@ async def get_editor_config(
         )
 
     token = _dl_token(lid)
-    # Unique key per session — forces OnlyOffice to reload the document
-    doc_key = f"letter_{lid}_{int(time.time())}"
+    # Use stable key for forcesave via Command Service.
+    # Change key only on regeneration so OnlyOffice reloads the document.
+    if need_regen:
+        doc_key = f"letter_{lid}_regen_{int(time.time())}"
+    else:
+        doc_key = f"letter_{lid}"
+    _active_doc_keys[lid] = doc_key
 
     config = {
         "document": {
@@ -327,6 +335,77 @@ async def onlyoffice_callback(
             return {"error": 1}
 
     return {"error": 0}
+
+
+@router.post("/forcesave/{lid}")
+async def forcesave(
+    lid: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_approved_user),
+):
+    """
+    Send forcesave command to OnlyOffice Command Service.
+    This triggers OnlyOffice to save the document and call the callback URL.
+    """
+    await _get_letter_full(lid, db)  # 404 check
+
+    doc_key = _active_doc_keys.get(lid)
+    if not doc_key:
+        raise HTTPException(status_code=400, detail="No active editing session for this letter")
+
+    # Build Command Service payload
+    payload = {"c": "forcesave", "key": doc_key}
+
+    # Sign with JWT if OnlyOffice has JWT enabled
+    jwt_token = _jwt_sign(payload)
+
+    # Try modern /command endpoint (v8.2+), fallback to legacy /coauthoring/CommandService.ashx
+    base_server = ONLYOFFICE_SERVER.rstrip("/")
+    endpoints = [f"{base_server}/command", f"{base_server}/coauthoring/CommandService.ashx"]
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            body: dict
+            if jwt_token:
+                body = {"token": jwt_token}
+            else:
+                body = payload
+
+            last_err: Exception | None = None
+            for url in endpoints:
+                try:
+                    resp = await client.post(
+                        url,
+                        json=body,
+                        headers={"Content-Type": "application/json"},
+                    )
+                    resp.raise_for_status()
+                    result = resp.json()
+                    break
+                except httpx.HTTPError as exc:
+                    last_err = exc
+                    log.debug("OnlyOffice Command Service failed at %s: %s", url, exc)
+                    continue
+            else:
+                raise last_err or Exception("All Command Service endpoints failed")
+
+            log.info("OnlyOffice forcesave response for letter %s: %s", lid, result)
+            error_code = result.get("error", 0)
+            if error_code != 0:
+                error_messages = {
+                    1: "Document key not found",
+                    2: "Invalid callback URL",
+                    3: "Internal server error",
+                    4: "No changes to save",
+                    5: "Invalid command",
+                    6: "Invalid token",
+                }
+                msg = error_messages.get(error_code, f"Unknown error {error_code}")
+                raise HTTPException(status_code=400, detail=f"OnlyOffice forcesave error: {msg}")
+            return {"status": "ok"}
+    except httpx.HTTPError as exc:
+        log.error("Failed to reach OnlyOffice Command Service for letter %s: %s", lid, exc)
+        raise HTTPException(status_code=502, detail=f"Cannot reach OnlyOffice server: {exc}")
 
 
 @router.get("/history/{lid}")

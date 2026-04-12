@@ -97,8 +97,8 @@ async def ensure_letter_saved(lid: int, db: AsyncSession) -> bool:
     except Exception as exc:
         log.warning("ensure_letter_saved command error for letter %s: %s", lid, exc)
 
-    # Poll file mtime (500ms intervals, max 15s)
-    for _ in range(30):
+    # Poll file mtime (500ms intervals, max 5s)
+    for _ in range(10):
         await asyncio.sleep(0.5)
         # Refresh from DB to get latest docx_path
         db.expire(letter)
@@ -107,6 +107,8 @@ async def ensure_letter_saved(lid: int, db: AsyncSession) -> bool:
         if letter2 and letter2.docx_path and os.path.exists(letter2.docx_path):
             current_mtime = os.path.getmtime(letter2.docx_path)
             if initial_mtime is None or current_mtime != initial_mtime:
+                # File changed — wait a moment to ensure OnlyOffice finished writing
+                await asyncio.sleep(1.0)
                 log.info("ensure_letter_saved: file updated for letter %s", lid)
                 return True
 

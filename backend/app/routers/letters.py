@@ -185,7 +185,7 @@ async def generate_letter(
     org = org_result.scalar_one_or_none()
 
     docx_path = await generate_letter_docx(letter, org)
-    pdf_path = docx_to_pdf(docx_path)
+    pdf_path = await docx_to_pdf(docx_path)
 
     letter.docx_path = docx_path
     letter.pdf_path = pdf_path
@@ -225,7 +225,7 @@ async def download_letter(
                 docx_path = await generate_letter_docx(letter, org)
                 letter.docx_path = docx_path
                 await db.commit()
-            pdf_path = docx_to_pdf(letter.docx_path)
+            pdf_path = await docx_to_pdf(letter.docx_path)
             letter.pdf_path = pdf_path
             await db.commit()
         return FileResponse(

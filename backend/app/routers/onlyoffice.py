@@ -398,17 +398,23 @@ async def forcesave(
                     resp.raise_for_status()
                     result = resp.json()
                     error_code = result.get("error", 0)
-                    if error_code != 0:
-                        error_messages = {
-                            1: "Document key not found",
-                            2: "Invalid callback URL",
-                            3: "Internal server error",
-                            4: "No changes to save",
-                            5: "Invalid command",
-                            6: "Invalid token",
-                        }
-                        msg = error_messages.get(error_code, f"Unknown error {error_code}")
-                        raise HTTPException(status_code=400, detail=f"OnlyOffice forcesave error: {msg}")
+                    log.info("OnlyOffice Command Service response: %s", result)
+                    if error_code == 0:
+                        break  # Success
+                    if error_code == 4:
+                        # No changes to save — document is already saved
+                        log.info("Forcesave: no changes for letter %s (already saved)", lid)
+                        break  # Not an error — proceed to wait for callback
+                    error_messages = {
+                        1: "Document key not found (check _active_doc_keys)",
+                        2: "Invalid callback URL",
+                        3: "Internal server error",
+                        5: "Invalid command",
+                        6: "Invalid token",
+                    }
+                    msg = error_messages.get(error_code, f"Unknown error {error_code}")
+                    log.error("OnlyOffice forcesave error %d for letter %s: %s", error_code, lid, msg)
+                    raise HTTPException(status_code=400, detail=f"OnlyOffice forcesave error: {msg}")
                     break
                 except httpx.HTTPError as exc:
                     last_err = exc

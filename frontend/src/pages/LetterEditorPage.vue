@@ -280,7 +280,9 @@ async function requestOnlyOfficeSave(): Promise<boolean> {
       await new Promise(r => setTimeout(r, POLL_INTERVAL))
       const { data: status } = await api.get(`/onlyoffice/save-status/${letter.value.id}`)
       if (status.file_mtime && status.file_mtime !== initialMtime) {
-        console.log('[OnlyOffice] Forcesave: file updated after polling')
+        // File changed on disk — wait a moment to ensure it's fully written
+        console.log('[OnlyOffice] Forcesave: file updated, waiting 1s for write completion...')
+        await new Promise(r => setTimeout(r, 1000))
         return true
       }
       if (status.saved_at) {

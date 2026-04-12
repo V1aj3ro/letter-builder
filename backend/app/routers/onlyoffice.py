@@ -48,21 +48,28 @@ ONLYOFFICE_JWT_SECRET = os.environ.get("ONLYOFFICE_JWT_SECRET", "")
 # In-memory store: letter_id -> current doc_key (for forcesave command)
 _active_doc_keys: dict[int, str] = {}
 
-# Events to signal forcesave completion (letter_id -> Event)
-_forcesave_events: dict[int, asyncio.Event] = {}
-
-# Track last successful save time per letter (letter_id -> timestamp)
-_last_saved_at: dict[int, float] = {}
-
 
 async def ensure_letter_saved(lid: int, db: AsyncSession) -> bool:
     """
-    Send forcesave to OnlyOffice and wait for callback (short timeout).
-    Falls back to immediate return if OnlyOffice accepted the command.
+    Send forcesave to OnlyOffice, then poll file mtime until it changes.
+    Pure polling — no callback dependency.
     """
     doc_key = _active_doc_keys.get(lid)
     if not doc_key:
-        return False  # No active editing session — serve whatever we have
+        return False  # No active editing session
+
+    # Get current mtime
+    from ..models import Letter as LetterModel
+    result = await db.execute(
+        select(LetterModel).where(LetterModel.id == lid)
+    )
+    letter = result.scalar_one_or_none()
+    if not letter or not letter.docx_path:
+        return False
+
+    initial_mtime = None
+    if os.path.exists(letter.docx_path):
+        initial_mtime = os.path.getmtime(letter.docx_path)
 
     # Send forcesave command
     payload = {"c": "forcesave", "key": doc_key}
@@ -70,46 +77,41 @@ async def ensure_letter_saved(lid: int, db: AsyncSession) -> bool:
     base_server = ONLYOFFICE_SERVER.rstrip("/")
     endpoints = [f"{base_server}/command", f"{base_server}/coauthoring/CommandService.ashx"]
 
-    event = asyncio.Event()
-    _forcesave_events[lid] = event
-    callback_received = False
-
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             body = {"token": jwt_token} if jwt_token else payload
-            last_err = None
             for url in endpoints:
                 try:
                     resp = await client.post(url, json=body, headers={"Content-Type": "application/json"})
                     resp.raise_for_status()
                     result = resp.json()
                     error_code = result.get("error", 0)
-                    if error_code in (0, 4):  # Accepted or no changes
+                    if error_code in (0, 4):
                         log.info("ensure_letter_saved: OnlyOffice accepted (error=%d) for letter %s", error_code, lid)
                         break
-                    last_err = Exception(f"OnlyOffice error {error_code}")
                     log.warning("ensure_letter_saved: OnlyOffice error %d for letter %s", error_code, lid)
-                except httpx.HTTPError as exc:
-                    last_err = exc
+                except httpx.HTTPError:
                     continue
             else:
-                log.warning("ensure_letter_saved: all Command Service endpoints failed for letter %s", lid)
-                return False
-
-        # Wait briefly for callback (2s — enough if it's coming)
-        try:
-            await asyncio.wait_for(event.wait(), timeout=2.0)
-            callback_received = True
-        except asyncio.TimeoutError:
-            # Callback may not come for forcesave with no changes — that's OK
-            pass
-
-        return True
+                log.warning("ensure_letter_saved: all endpoints failed for letter %s", lid)
     except Exception as exc:
-        log.warning("ensure_letter_saved error for letter %s: %s", lid, exc)
-        return False
-    finally:
-        _forcesave_events.pop(lid, None)
+        log.warning("ensure_letter_saved command error for letter %s: %s", lid, exc)
+
+    # Poll file mtime (500ms intervals, max 15s)
+    for _ in range(30):
+        await asyncio.sleep(0.5)
+        # Refresh from DB to get latest docx_path
+        db.expire(letter)
+        result2 = await db.execute(select(LetterModel).where(LetterModel.id == lid))
+        letter2 = result2.scalar_one_or_none()
+        if letter2 and letter2.docx_path and os.path.exists(letter2.docx_path):
+            current_mtime = os.path.getmtime(letter2.docx_path)
+            if initial_mtime is None or current_mtime != initial_mtime:
+                log.info("ensure_letter_saved: file updated for letter %s", lid)
+                return True
+
+    log.warning("ensure_letter_saved: polling timeout for letter %s", lid)
+    return False
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -394,19 +396,8 @@ async def onlyoffice_callback(
             letter.pdf_path = None  # invalidate cached PDF
             await db.commit()
             log.info("Letter %s saved from OnlyOffice (%d bytes)", lid, len(resp.content))
-
-            # Record save timestamp
-            _last_saved_at[lid] = time.time()
-
-            # Signal forcesave completion if someone is waiting
-            if status == 6 and lid in _forcesave_events:
-                _forcesave_events[lid].set()
         except Exception as exc:
             log.error("Failed to save OnlyOffice document for letter %s: %s", lid, exc)
-
-            # Signal error for forcesave waiters
-            if status == 6 and lid in _forcesave_events:
-                _forcesave_events[lid].set()
             return {"error": 1}
 
     return {"error": 0}
@@ -420,107 +411,36 @@ async def forcesave(
 ):
     """
     Send forcesave command to OnlyOffice Command Service.
-    Waits for the callback to complete before returning (timeout 15s).
+    Returns immediately with success if OnlyOffice accepted the command.
+    The download endpoint calls ensure_letter_saved() which does polling.
     """
-    await _get_letter_full(lid, db)  # 404 check
+    await _get_letter_full(lid, db)
 
     doc_key = _active_doc_keys.get(lid)
     if not doc_key:
         raise HTTPException(status_code=400, detail="No active editing session for this letter")
 
-    # Build Command Service payload
     payload = {"c": "forcesave", "key": doc_key}
-
-    # Sign with JWT if OnlyOffice has JWT enabled
     jwt_token = _jwt_sign(payload)
-
-    # Try modern /command endpoint (v8.2+), fallback to legacy /coauthoring/CommandService.ashx
     base_server = ONLYOFFICE_SERVER.rstrip("/")
     endpoints = [f"{base_server}/command", f"{base_server}/coauthoring/CommandService.ashx"]
 
-    # Create event to wait for callback completion
-    event = asyncio.Event()
-    _forcesave_events[lid] = event
-
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            body: dict
-            if jwt_token:
-                body = {"token": jwt_token}
-            else:
-                body = payload
-
-            last_err: Exception | None = None
-            for url in endpoints:
-                try:
-                    resp = await client.post(
-                        url,
-                        json=body,
-                        headers={"Content-Type": "application/json"},
-                    )
-                    resp.raise_for_status()
-                    result = resp.json()
-                    error_code = result.get("error", 0)
-                    log.info("OnlyOffice Command Service response: %s", result)
-                    if error_code == 0:
-                        break  # Success — will wait for callback
-                    if error_code == 4:
-                        # No changes to save — but we still need to ensure file is saved
-                        log.info("Forcesave: no changes for letter %s, waiting for callback to confirm", lid)
-                        break  # Proceed to wait for callback (may have already been saved)
-                    error_messages = {
-                        1: "Document key not found (check _active_doc_keys)",
-                        2: "Invalid callback URL",
-                        3: "Internal server error",
-                        5: "Invalid command",
-                        6: "Invalid token",
-                    }
-                    msg = error_messages.get(error_code, f"Unknown error {error_code}")
-                    log.error("OnlyOffice forcesave error %d for letter %s: %s", error_code, lid, msg)
-                    raise HTTPException(status_code=400, detail=f"OnlyOffice forcesave error: {msg}")
-                    break
-                except httpx.HTTPError as exc:
-                    last_err = exc
-                    log.debug("OnlyOffice Command Service failed at %s: %s", url, exc)
-                    continue
-                except HTTPException:
-                    raise
-            else:
-                raise last_err or Exception("All Command Service endpoints failed")
-
-        # Wait for callback to complete (15s timeout)
-        log.info("Waiting for forcesave callback for letter %s", lid)
-        try:
-            await asyncio.wait_for(event.wait(), timeout=15.0)
-            return {"status": "ok", "saved": True, "reason": "callback_received"}
-        except asyncio.TimeoutError:
-            log.warning("Forcesave callback timeout for letter %s", lid)
-            return {"status": "ok", "saved": False, "reason": "callback_timeout"}
-    finally:
-        _forcesave_events.pop(lid, None)
-
-
-@router.get("/save-status/{lid}")
-async def get_save_status(
-    lid: int,
-    db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_approved_user),
-):
-    """
-    Check if the OnlyOffice document has been saved.
-    Returns the last save timestamp and file mtime.
-    """
-    letter = await _get_letter_full(lid, db)
-
-    saved_at = _last_saved_at.get(lid)
-    file_mtime = None
-    if letter.docx_path and os.path.exists(letter.docx_path):
-        file_mtime = os.path.getmtime(letter.docx_path)
-
-    return {
-        "saved_at": saved_at,
-        "file_mtime": file_mtime,
-    }
+    async with httpx.AsyncClient(timeout=10) as client:
+        body = {"token": jwt_token} if jwt_token else payload
+        last_err = None
+        for url in endpoints:
+            try:
+                resp = await client.post(url, json=body, headers={"Content-Type": "application/json"})
+                resp.raise_for_status()
+                result = resp.json()
+                error_code = result.get("error", 0)
+                if error_code in (0, 4):
+                    return {"status": "ok"}
+                last_err = Exception(f"error {error_code}")
+            except httpx.HTTPError as exc:
+                last_err = exc
+                continue
+        raise HTTPException(status_code=502, detail=f"OnlyOffice Command Service failed: {last_err}")
 
 
 @router.get("/history/{lid}")

@@ -254,45 +254,14 @@ let _pendingRegen = false  // set to true only when form fields changed
 
 /**
  * Request OnlyOffice to save the document via Command Service.
- * Then polls until the file is actually saved (max 20s).
- * Returns true if saved, false on error.
+ * The download endpoint will do polling on the server side.
  */
 async function requestOnlyOfficeSave(): Promise<boolean> {
   if (!docEditor || !letter.value) return true // No editor — nothing to save
 
   try {
-    const { data } = await api.post(`/onlyoffice/forcesave/${letter.value.id}`)
-    if (data.reason === 'callback_received') {
-      console.log('[OnlyOffice] Forcesave: saved successfully')
-      return true
-    }
-    // callback_timeout — poll until file is actually saved
-    console.log('[OnlyOffice] Forcesave: callback timeout, polling for save completion...')
-    const pollStart = Date.now()
-    const POLL_TIMEOUT = 20_000
-    const POLL_INTERVAL = 500
-
-    // Get current file mtime before waiting
-    const { data: initialStatus } = await api.get(`/onlyoffice/save-status/${letter.value.id}`)
-    const initialMtime = initialStatus.file_mtime
-
-    while (Date.now() - pollStart < POLL_TIMEOUT) {
-      await new Promise(r => setTimeout(r, POLL_INTERVAL))
-      const { data: status } = await api.get(`/onlyoffice/save-status/${letter.value.id}`)
-      if (status.file_mtime && status.file_mtime !== initialMtime) {
-        // File changed on disk — wait a moment to ensure it's fully written
-        console.log('[OnlyOffice] Forcesave: file updated, waiting 1s for write completion...')
-        await new Promise(r => setTimeout(r, 1000))
-        return true
-      }
-      if (status.saved_at) {
-        console.log('[OnlyOffice] Forcesave: save confirmed via polling')
-        return true
-      }
-    }
-
-    console.warn('[OnlyOffice] Forcesave: polling timeout — file may not be saved')
-    return false
+    await api.post(`/onlyoffice/forcesave/${letter.value.id}`)
+    return true
   } catch (err: any) {
     console.warn('[OnlyOffice] Forcesave failed:', err?.response?.data ?? err.message)
     return false
@@ -438,14 +407,7 @@ async function saveMeta() {
   if (!letter.value) return
   saving.value = true
   try {
-    // Force-save OnlyOffice document first
-    const saved = await requestOnlyOfficeSave()
-    if (!saved) {
-      if (!confirm('Документ не был сохранён на сервере OnlyOffice.\n\nПродолжить сохранение метаданных на свой страх и риск?')) {
-        saving.value = false
-        return
-      }
-    }
+    await requestOnlyOfficeSave()
     await lettersStore.update(letter.value.id, {
       recipient_id: form.recipient_id,
       subject:      form.subject,
@@ -496,13 +458,7 @@ async function markSent() {
 
 async function downloadFile(format: 'pdf' | 'docx') {
   if (!letter.value) return
-  // Force-save OnlyOffice document first
-  const saved = await requestOnlyOfficeSave()
-  if (!saved) {
-    if (!confirm('Документ не был сохранён на сервере OnlyOffice.\n\nПродолжить скачивание на свой страх и риск?')) {
-      return
-    }
-  }
+  await requestOnlyOfficeSave()
   await downloadLetter(letter.value.id, format)
 }
 

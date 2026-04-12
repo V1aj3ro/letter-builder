@@ -48,28 +48,19 @@ ONLYOFFICE_JWT_SECRET = os.environ.get("ONLYOFFICE_JWT_SECRET", "")
 # In-memory store: letter_id -> current doc_key (for forcesave command)
 _active_doc_keys: dict[int, str] = {}
 
+# Events to signal forcesave completion (letter_id -> Event)
+_forcesave_events: dict[int, asyncio.Event] = {}
+
 
 async def ensure_letter_saved(lid: int, db: AsyncSession) -> bool:
     """
-    Send forcesave to OnlyOffice, then poll file mtime until it changes.
-    Pure polling — no callback dependency.
+    Send forcesave to OnlyOffice and wait for the callback to complete.
+    The callback downloads the file from OnlyOffice and saves it locally.
+    This is the most reliable approach per OnlyOffice official docs.
     """
     doc_key = _active_doc_keys.get(lid)
     if not doc_key:
         return False  # No active editing session
-
-    # Get current mtime
-    from ..models import Letter as LetterModel
-    result = await db.execute(
-        select(LetterModel).where(LetterModel.id == lid)
-    )
-    letter = result.scalar_one_or_none()
-    if not letter or not letter.docx_path:
-        return False
-
-    initial_mtime = None
-    if os.path.exists(letter.docx_path):
-        initial_mtime = os.path.getmtime(letter.docx_path)
 
     # Send forcesave command
     payload = {"c": "forcesave", "key": doc_key}
@@ -86,34 +77,28 @@ async def ensure_letter_saved(lid: int, db: AsyncSession) -> bool:
                     resp.raise_for_status()
                     result = resp.json()
                     error_code = result.get("error", 0)
-                    if error_code in (0, 4):
-                        log.info("ensure_letter_saved: OnlyOffice accepted (error=%d) for letter %s", error_code, lid)
+                    if error_code in (0, 4):  # 0 = accepted, 4 = no changes
                         break
                     log.warning("ensure_letter_saved: OnlyOffice error %d for letter %s", error_code, lid)
                 except httpx.HTTPError:
                     continue
             else:
-                log.warning("ensure_letter_saved: all endpoints failed for letter %s", lid)
+                log.warning("ensure_letter_saved: all Command Service endpoints failed for letter %s", lid)
     except Exception as exc:
         log.warning("ensure_letter_saved command error for letter %s: %s", lid, exc)
 
-    # Poll file mtime (500ms intervals, max 5s)
-    for _ in range(10):
-        await asyncio.sleep(0.5)
-        # Refresh from DB to get latest docx_path
-        db.expire(letter)
-        result2 = await db.execute(select(LetterModel).where(LetterModel.id == lid))
-        letter2 = result2.scalar_one_or_none()
-        if letter2 and letter2.docx_path and os.path.exists(letter2.docx_path):
-            current_mtime = os.path.getmtime(letter2.docx_path)
-            if initial_mtime is None or current_mtime != initial_mtime:
-                # File changed — wait a moment to ensure OnlyOffice finished writing
-                await asyncio.sleep(1.0)
-                log.info("ensure_letter_saved: file updated for letter %s", lid)
-                return True
-
-    log.warning("ensure_letter_saved: polling timeout for letter %s", lid)
-    return False
+    # Wait for callback to complete (status 6)
+    event = asyncio.Event()
+    _forcesave_events[lid] = event
+    try:
+        await asyncio.wait_for(event.wait(), timeout=10.0)
+        log.info("ensure_letter_saved: callback completed for letter %s", lid)
+        return True
+    except asyncio.TimeoutError:
+        log.warning("ensure_letter_saved: callback timeout for letter %s", lid)
+        return False
+    finally:
+        _forcesave_events.pop(lid, None)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -398,8 +383,16 @@ async def onlyoffice_callback(
             letter.pdf_path = None  # invalidate cached PDF
             await db.commit()
             log.info("Letter %s saved from OnlyOffice (%d bytes)", lid, len(resp.content))
+
+            # Signal forcesave completion if someone is waiting
+            if lid in _forcesave_events:
+                _forcesave_events[lid].set()
         except Exception as exc:
             log.error("Failed to save OnlyOffice document for letter %s: %s", lid, exc)
+
+            # Signal error for forcesave waiters
+            if lid in _forcesave_events:
+                _forcesave_events[lid].set()
             return {"error": 1}
 
     return {"error": 0}
@@ -412,37 +405,13 @@ async def forcesave(
     current_user: User = Depends(get_approved_user),
 ):
     """
-    Send forcesave command to OnlyOffice Command Service.
-    Returns immediately with success if OnlyOffice accepted the command.
-    The download endpoint calls ensure_letter_saved() which does polling.
+    Send forcesave command to OnlyOffice and wait for callback completion.
+    Returns when the file is fully saved, or times out after 12s.
     """
-    await _get_letter_full(lid, db)
-
-    doc_key = _active_doc_keys.get(lid)
-    if not doc_key:
-        raise HTTPException(status_code=400, detail="No active editing session for this letter")
-
-    payload = {"c": "forcesave", "key": doc_key}
-    jwt_token = _jwt_sign(payload)
-    base_server = ONLYOFFICE_SERVER.rstrip("/")
-    endpoints = [f"{base_server}/command", f"{base_server}/coauthoring/CommandService.ashx"]
-
-    async with httpx.AsyncClient(timeout=10) as client:
-        body = {"token": jwt_token} if jwt_token else payload
-        last_err = None
-        for url in endpoints:
-            try:
-                resp = await client.post(url, json=body, headers={"Content-Type": "application/json"})
-                resp.raise_for_status()
-                result = resp.json()
-                error_code = result.get("error", 0)
-                if error_code in (0, 4):
-                    return {"status": "ok"}
-                last_err = Exception(f"error {error_code}")
-            except httpx.HTTPError as exc:
-                last_err = exc
-                continue
-        raise HTTPException(status_code=502, detail=f"OnlyOffice Command Service failed: {last_err}")
+    saved = await ensure_letter_saved(lid, db)
+    if not saved:
+        raise HTTPException(status_code=408, detail="Forcesave timed out — file not saved")
+    return {"status": "ok"}
 
 
 @router.get("/history/{lid}")

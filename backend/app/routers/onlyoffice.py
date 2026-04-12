@@ -55,6 +55,57 @@ _forcesave_events: dict[int, asyncio.Event] = {}
 _last_saved_at: dict[int, float] = {}
 
 
+async def ensure_letter_saved(lid: int, db: AsyncSession) -> bool:
+    """
+    Send forcesave to OnlyOffice and wait until the file is actually saved.
+    Returns True if saved, False if no active session or timeout.
+    Used by download endpoint to always serve the latest version.
+    """
+    doc_key = _active_doc_keys.get(lid)
+    if not doc_key:
+        return False  # No active editing session — serve whatever we have
+
+    # Send forcesave command
+    payload = {"c": "forcesave", "key": doc_key}
+    jwt_token = _jwt_sign(payload)
+    base_server = ONLYOFFICE_SERVER.rstrip("/")
+    endpoints = [f"{base_server}/command", f"{base_server}/coauthoring/CommandService.ashx"]
+
+    event = asyncio.Event()
+    _forcesave_events[lid] = event
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            body = {"token": jwt_token} if jwt_token else payload
+            last_err = None
+            for url in endpoints:
+                try:
+                    resp = await client.post(url, json=body, headers={"Content-Type": "application/json"})
+                    resp.raise_for_status()
+                    result = resp.json()
+                    error_code = result.get("error", 0)
+                    if error_code in (0, 4):  # 0 = saved, 4 = no changes (already saved)
+                        break
+                    last_err = Exception(f"OnlyOffice error {error_code}")
+                except httpx.HTTPError as exc:
+                    last_err = exc
+                    continue
+            else:
+                log.warning("OnlyOffice Command Service all endpoints failed for letter %s", lid)
+
+        # Wait for callback (10s)
+        try:
+            await asyncio.wait_for(event.wait(), timeout=10.0)
+            return True
+        except asyncio.TimeoutError:
+            return False
+    except Exception as exc:
+        log.warning("ensure_letter_saved error for letter %s: %s", lid, exc)
+        return False
+    finally:
+        _forcesave_events.pop(lid, None)
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _dl_token(letter_id: int) -> str:

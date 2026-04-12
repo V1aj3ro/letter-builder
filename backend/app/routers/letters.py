@@ -210,6 +210,13 @@ async def download_letter(
     org = org_result.scalar_one_or_none()
 
     if format == "docx":
+        # Always ensure we have the latest from OnlyOffice before serving
+        from ..routers.onlyoffice import ensure_letter_saved
+        await ensure_letter_saved(lid, db)
+
+        # Refresh letter to get updated docx_path
+        await db.refresh(letter)
+
         if not letter.docx_path or not os.path.exists(letter.docx_path):
             docx_path = await generate_letter_docx(letter, org)
             letter.docx_path = docx_path
@@ -220,6 +227,13 @@ async def download_letter(
             filename=f"letter_{letter.number}.docx",
         )
     else:
+        # Always ensure we have the latest from OnlyOffice before serving
+        from ..routers.onlyoffice import ensure_letter_saved
+        await ensure_letter_saved(lid, db)
+
+        # Refresh letter to get updated docx_path
+        await db.refresh(letter)
+
         if not letter.pdf_path or not os.path.exists(letter.pdf_path):
             if not letter.docx_path or not os.path.exists(letter.docx_path):
                 docx_path = await generate_letter_docx(letter, org)

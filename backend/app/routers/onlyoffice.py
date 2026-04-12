@@ -408,9 +408,9 @@ async def forcesave(
                     if error_code == 0:
                         break  # Success — will wait for callback
                     if error_code == 4:
-                        # No changes to save — document already saved, no callback will come
-                        log.info("Forcesave: no changes for letter %s (already saved), skipping callback wait", lid)
-                        return {"status": "ok", "saved": True, "reason": "already_saved"}
+                        # No changes to save — but we still need to ensure file is saved
+                        log.info("Forcesave: no changes for letter %s, waiting for callback to confirm", lid)
+                        break  # Proceed to wait for callback (may have already been saved)
                     error_messages = {
                         1: "Document key not found (check _active_doc_keys)",
                         2: "Invalid callback URL",

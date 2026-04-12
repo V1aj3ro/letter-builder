@@ -262,10 +262,6 @@ async function requestOnlyOfficeSave(): Promise<boolean> {
 
   try {
     const { data } = await api.post(`/onlyoffice/forcesave/${letter.value.id}`)
-    if (data.reason === 'already_saved') {
-      console.log('[OnlyOffice] Forcesave: document already saved, skipping')
-      return true
-    }
     if (data.reason === 'callback_received') {
       console.log('[OnlyOffice] Forcesave: saved successfully')
       return true

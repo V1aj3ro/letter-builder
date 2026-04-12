@@ -252,6 +252,41 @@ const projectRecipients = computed(() => {
 let docEditor: any = null
 let _pendingRegen = false  // set to true only when form fields changed
 
+// Promise resolver + timer for force-save completion
+let _saveResolve: ((saved: boolean) => void) | null = null
+let _saveTimer: ReturnType<typeof setTimeout> | null = null
+const SAVE_TIMEOUT = 10_000 // 10 seconds
+
+/**
+ * Request OnlyOffice to save the document and wait for confirmation.
+ * Returns immediately if editor is not open.
+ * Resolves with true if saved, false if timeout (with warning shown).
+ */
+function requestOnlyOfficeSave(): Promise<boolean> {
+  if (!docEditor) return Promise.resolve(true) // No editor — nothing to save
+
+  return new Promise((resolve) => {
+    _saveResolve = resolve
+
+    // Safety timeout — if onRequestSave never fires
+    _saveTimer = setTimeout(() => {
+      _saveResolve = null
+      _saveTimer = null
+      console.warn('[OnlyOffice] Save timeout — server did not confirm save')
+      resolve(false) // Timeout — action proceeds with warning
+    }, SAVE_TIMEOUT)
+
+    try {
+      docEditor.requestSave()
+    } catch (err) {
+      console.warn('[OnlyOffice] Failed to request save:', err)
+      _saveResolve = null
+      if (_saveTimer) { clearTimeout(_saveTimer); _saveTimer = null }
+      resolve(true) // Don't block the flow on error
+    }
+  })
+}
+
 function loadApiScript(serverUrl: string): Promise<void> {
   return new Promise((resolve, reject) => {
     if ((window as any).DocsAPI) { resolve(); return }
@@ -349,6 +384,14 @@ async function openEditor() {
         onRequestHistoryClose() {
           // no-op: editor stays open on current version
         },
+        onRequestSave() {
+          // OnlyOffice confirmed the document is saved on the server
+          if (_saveTimer) { clearTimeout(_saveTimer); _saveTimer = null }
+          if (_saveResolve) {
+            _saveResolve(true)
+            _saveResolve = null
+          }
+        },
       },
     })
   } catch (err: any) {
@@ -391,6 +434,14 @@ async function saveMeta() {
   if (!letter.value) return
   saving.value = true
   try {
+    // Force-save OnlyOffice document first
+    const saved = await requestOnlyOfficeSave()
+    if (!saved) {
+      if (!confirm('Сервер OnlyOffice не подтвердил сохранение документа.\n\nПродолжить сохранение метаданных на свой страх и риск?')) {
+        saving.value = false
+        return
+      }
+    }
     await lettersStore.update(letter.value.id, {
       recipient_id: form.recipient_id,
       subject:      form.subject,
@@ -441,6 +492,13 @@ async function markSent() {
 
 async function downloadFile(format: 'pdf' | 'docx') {
   if (!letter.value) return
+  // Force-save OnlyOffice document first
+  const saved = await requestOnlyOfficeSave()
+  if (!saved) {
+    if (!confirm('Сервер OnlyOffice не подтвердил сохранение документа.\n\nПродолжить скачивание на свой страх и риск?')) {
+      return
+    }
+  }
   await downloadLetter(letter.value.id, format)
 }
 

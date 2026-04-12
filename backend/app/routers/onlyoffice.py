@@ -51,6 +51,9 @@ _active_doc_keys: dict[int, str] = {}
 # Events to signal forcesave completion (letter_id -> Event)
 _forcesave_events: dict[int, asyncio.Event] = {}
 
+# Track last successful save time per letter (letter_id -> timestamp)
+_last_saved_at: dict[int, float] = {}
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -335,6 +338,9 @@ async def onlyoffice_callback(
             await db.commit()
             log.info("Letter %s saved from OnlyOffice (%d bytes)", lid, len(resp.content))
 
+            # Record save timestamp
+            _last_saved_at[lid] = time.time()
+
             # Signal forcesave completion if someone is waiting
             if status == 6 and lid in _forcesave_events:
                 _forcesave_events[lid].set()
@@ -400,11 +406,11 @@ async def forcesave(
                     error_code = result.get("error", 0)
                     log.info("OnlyOffice Command Service response: %s", result)
                     if error_code == 0:
-                        break  # Success
+                        break  # Success — will wait for callback
                     if error_code == 4:
-                        # No changes to save — document is already saved
-                        log.info("Forcesave: no changes for letter %s (already saved)", lid)
-                        break  # Not an error — proceed to wait for callback
+                        # No changes to save — document already saved, no callback will come
+                        log.info("Forcesave: no changes for letter %s (already saved), skipping callback wait", lid)
+                        return {"status": "ok", "saved": True, "reason": "already_saved"}
                     error_messages = {
                         1: "Document key not found (check _active_doc_keys)",
                         2: "Invalid callback URL",
@@ -429,13 +435,35 @@ async def forcesave(
         log.info("Waiting for forcesave callback for letter %s", lid)
         try:
             await asyncio.wait_for(event.wait(), timeout=15.0)
+            return {"status": "ok", "saved": True, "reason": "callback_received"}
         except asyncio.TimeoutError:
             log.warning("Forcesave callback timeout for letter %s", lid)
-            # Don't fail — document may still be saving
-
-        return {"status": "ok"}
+            return {"status": "ok", "saved": False, "reason": "callback_timeout"}
     finally:
         _forcesave_events.pop(lid, None)
+
+
+@router.get("/save-status/{lid}")
+async def get_save_status(
+    lid: int,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_approved_user),
+):
+    """
+    Check if the OnlyOffice document has been saved.
+    Returns the last save timestamp and file mtime.
+    """
+    letter = await _get_letter_full(lid, db)
+
+    saved_at = _last_saved_at.get(lid)
+    file_mtime = None
+    if letter.docx_path and os.path.exists(letter.docx_path):
+        file_mtime = os.path.getmtime(letter.docx_path)
+
+    return {
+        "saved_at": saved_at,
+        "file_mtime": file_mtime,
+    }
 
 
 @router.get("/history/{lid}")

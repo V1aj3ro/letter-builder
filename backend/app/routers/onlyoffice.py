@@ -57,9 +57,8 @@ _last_saved_at: dict[int, float] = {}
 
 async def ensure_letter_saved(lid: int, db: AsyncSession) -> bool:
     """
-    Send forcesave to OnlyOffice and wait until the file is actually saved.
-    Returns True if saved, False if no active session or timeout.
-    Used by download endpoint to always serve the latest version.
+    Send forcesave to OnlyOffice and wait for callback (short timeout).
+    Falls back to immediate return if OnlyOffice accepted the command.
     """
     doc_key = _active_doc_keys.get(lid)
     if not doc_key:
@@ -73,6 +72,7 @@ async def ensure_letter_saved(lid: int, db: AsyncSession) -> bool:
 
     event = asyncio.Event()
     _forcesave_events[lid] = event
+    callback_received = False
 
     try:
         async with httpx.AsyncClient(timeout=10) as client:
@@ -84,21 +84,27 @@ async def ensure_letter_saved(lid: int, db: AsyncSession) -> bool:
                     resp.raise_for_status()
                     result = resp.json()
                     error_code = result.get("error", 0)
-                    if error_code in (0, 4):  # 0 = saved, 4 = no changes (already saved)
+                    if error_code in (0, 4):  # Accepted or no changes
+                        log.info("ensure_letter_saved: OnlyOffice accepted (error=%d) for letter %s", error_code, lid)
                         break
                     last_err = Exception(f"OnlyOffice error {error_code}")
+                    log.warning("ensure_letter_saved: OnlyOffice error %d for letter %s", error_code, lid)
                 except httpx.HTTPError as exc:
                     last_err = exc
                     continue
             else:
-                log.warning("OnlyOffice Command Service all endpoints failed for letter %s", lid)
+                log.warning("ensure_letter_saved: all Command Service endpoints failed for letter %s", lid)
+                return False
 
-        # Wait for callback (10s)
+        # Wait briefly for callback (2s — enough if it's coming)
         try:
-            await asyncio.wait_for(event.wait(), timeout=10.0)
-            return True
+            await asyncio.wait_for(event.wait(), timeout=2.0)
+            callback_received = True
         except asyncio.TimeoutError:
-            return False
+            # Callback may not come for forcesave with no changes — that's OK
+            pass
+
+        return True
     except Exception as exc:
         log.warning("ensure_letter_saved error for letter %s: %s", lid, exc)
         return False

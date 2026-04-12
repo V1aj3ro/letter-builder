@@ -19,6 +19,7 @@ Required env vars:
                         e.g. https://letters.demo.corpcore.ru  or  http://1.2.3.4:3010
   ONLYOFFICE_JWT_SECRET — JWT secret configured in OnlyOffice (optional)
 """
+import asyncio
 import hashlib
 import hmac
 import logging
@@ -46,6 +47,9 @@ ONLYOFFICE_JWT_SECRET = os.environ.get("ONLYOFFICE_JWT_SECRET", "")
 
 # In-memory store: letter_id -> current doc_key (for forcesave command)
 _active_doc_keys: dict[int, str] = {}
+
+# Events to signal forcesave completion (letter_id -> Event)
+_forcesave_events: dict[int, asyncio.Event] = {}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -330,8 +334,16 @@ async def onlyoffice_callback(
             letter.pdf_path = None  # invalidate cached PDF
             await db.commit()
             log.info("Letter %s saved from OnlyOffice (%d bytes)", lid, len(resp.content))
+
+            # Signal forcesave completion if someone is waiting
+            if status == 6 and lid in _forcesave_events:
+                _forcesave_events[lid].set()
         except Exception as exc:
             log.error("Failed to save OnlyOffice document for letter %s: %s", lid, exc)
+
+            # Signal error for forcesave waiters
+            if status == 6 and lid in _forcesave_events:
+                _forcesave_events[lid].set()
             return {"error": 1}
 
     return {"error": 0}
@@ -345,7 +357,7 @@ async def forcesave(
 ):
     """
     Send forcesave command to OnlyOffice Command Service.
-    This triggers OnlyOffice to save the document and call the callback URL.
+    Waits for the callback to complete before returning (timeout 15s).
     """
     await _get_letter_full(lid, db)  # 404 check
 
@@ -362,6 +374,10 @@ async def forcesave(
     # Try modern /command endpoint (v8.2+), fallback to legacy /coauthoring/CommandService.ashx
     base_server = ONLYOFFICE_SERVER.rstrip("/")
     endpoints = [f"{base_server}/command", f"{base_server}/coauthoring/CommandService.ashx"]
+
+    # Create event to wait for callback completion
+    event = asyncio.Event()
+    _forcesave_events[lid] = event
 
     try:
         async with httpx.AsyncClient(timeout=15) as client:
@@ -381,31 +397,39 @@ async def forcesave(
                     )
                     resp.raise_for_status()
                     result = resp.json()
+                    error_code = result.get("error", 0)
+                    if error_code != 0:
+                        error_messages = {
+                            1: "Document key not found",
+                            2: "Invalid callback URL",
+                            3: "Internal server error",
+                            4: "No changes to save",
+                            5: "Invalid command",
+                            6: "Invalid token",
+                        }
+                        msg = error_messages.get(error_code, f"Unknown error {error_code}")
+                        raise HTTPException(status_code=400, detail=f"OnlyOffice forcesave error: {msg}")
                     break
                 except httpx.HTTPError as exc:
                     last_err = exc
                     log.debug("OnlyOffice Command Service failed at %s: %s", url, exc)
                     continue
+                except HTTPException:
+                    raise
             else:
                 raise last_err or Exception("All Command Service endpoints failed")
 
-            log.info("OnlyOffice forcesave response for letter %s: %s", lid, result)
-            error_code = result.get("error", 0)
-            if error_code != 0:
-                error_messages = {
-                    1: "Document key not found",
-                    2: "Invalid callback URL",
-                    3: "Internal server error",
-                    4: "No changes to save",
-                    5: "Invalid command",
-                    6: "Invalid token",
-                }
-                msg = error_messages.get(error_code, f"Unknown error {error_code}")
-                raise HTTPException(status_code=400, detail=f"OnlyOffice forcesave error: {msg}")
-            return {"status": "ok"}
-    except httpx.HTTPError as exc:
-        log.error("Failed to reach OnlyOffice Command Service for letter %s: %s", lid, exc)
-        raise HTTPException(status_code=502, detail=f"Cannot reach OnlyOffice server: {exc}")
+        # Wait for callback to complete (15s timeout)
+        log.info("Waiting for forcesave callback for letter %s", lid)
+        try:
+            await asyncio.wait_for(event.wait(), timeout=15.0)
+        except asyncio.TimeoutError:
+            log.warning("Forcesave callback timeout for letter %s", lid)
+            # Don't fail — document may still be saving
+
+        return {"status": "ok"}
+    finally:
+        _forcesave_events.pop(lid, None)
 
 
 @router.get("/history/{lid}")

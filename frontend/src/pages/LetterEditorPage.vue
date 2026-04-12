@@ -252,42 +252,21 @@ const projectRecipients = computed(() => {
 let docEditor: any = null
 let _pendingRegen = false  // set to true only when form fields changed
 
-// Promise resolver + timer for force-save completion
-let _saveResolve: ((saved: boolean) => void) | null = null
-let _saveTimer: ReturnType<typeof setTimeout> | null = null
-const SAVE_TIMEOUT = 10_000 // 10 seconds
-
 /**
  * Request OnlyOffice to save the document via Command Service.
- * Calls the backend /onlyoffice/forcesave/{lid} which sends forcesave to OnlyOffice.
- * Resolves with true if saved, false if error/timeout.
+ * The backend waits for the callback to complete before returning.
+ * Returns true if saved, false on error.
  */
-function requestOnlyOfficeSave(): Promise<boolean> {
-  if (!docEditor || !letter.value) return Promise.resolve(true) // No editor — nothing to save
+async function requestOnlyOfficeSave(): Promise<boolean> {
+  if (!docEditor || !letter.value) return true // No editor — nothing to save
 
-  return new Promise((resolve) => {
-    _saveResolve = resolve
-
-    // Safety timeout — if onRequestSave never fires
-    _saveTimer = setTimeout(() => {
-      _saveResolve = null
-      _saveTimer = null
-      console.warn('[OnlyOffice] Save timeout — server did not confirm save')
-      resolve(false) // Timeout — action proceeds with warning
-    }, SAVE_TIMEOUT)
-
-    // Send forcesave command to backend → OnlyOffice Command Service
-    const lid = letter.value?.id
-    if (lid) {
-      api.post(`/onlyoffice/forcesave/${lid}`)
-        .catch((err) => {
-          console.warn('[OnlyOffice] Forcesave request failed:', err?.response?.data ?? err.message)
-          _saveResolve = null
-          if (_saveTimer) { clearTimeout(_saveTimer); _saveTimer = null }
-          resolve(false) // Error — action proceeds with warning
-        })
-    }
-  })
+  try {
+    await api.post(`/onlyoffice/forcesave/${letter.value.id}`)
+    return true
+  } catch (err: any) {
+    console.warn('[OnlyOffice] Forcesave failed:', err?.response?.data ?? err.message)
+    return false
+  }
 }
 
 function loadApiScript(serverUrl: string): Promise<void> {
@@ -386,14 +365,6 @@ async function openEditor() {
         },
         onRequestHistoryClose() {
           // no-op: editor stays open on current version
-        },
-        onRequestSave() {
-          // OnlyOffice confirmed the document is saved on the server
-          if (_saveTimer) { clearTimeout(_saveTimer); _saveTimer = null }
-          if (_saveResolve) {
-            _saveResolve(true)
-            _saveResolve = null
-          }
         },
       },
     })

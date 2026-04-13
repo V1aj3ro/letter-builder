@@ -48,14 +48,11 @@ ONLYOFFICE_JWT_SECRET = os.environ.get("ONLYOFFICE_JWT_SECRET", "")
 # In-memory store: letter_id -> current doc_key (for forcesave command)
 _active_doc_keys: dict[int, str] = {}
 
-# Events to signal forcesave completion (letter_id -> Event)
-_forcesave_events: dict[int, asyncio.Event] = {}
-
 
 async def ensure_letter_saved(lid: int, db: AsyncSession) -> bool:
     """
-    Send forcesave to OnlyOffice and wait briefly for callback.
-    If callback arrives — file is saved. If not, wait 1s and serve current file.
+    Send forcesave to OnlyOffice and return immediately.
+    The file is served from disk — callback updates it asynchronously.
     """
     doc_key = _active_doc_keys.get(lid)
     if not doc_key:
@@ -66,11 +63,8 @@ async def ensure_letter_saved(lid: int, db: AsyncSession) -> bool:
     base_server = ONLYOFFICE_SERVER.rstrip("/")
     endpoints = [f"{base_server}/command", f"{base_server}/coauthoring/CommandService.ashx"]
 
-    event = asyncio.Event()
-    _forcesave_events[lid] = event
-
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout=5) as client:
             body = {"token": jwt_token} if jwt_token else payload
             for url in endpoints:
                 try:
@@ -79,23 +73,12 @@ async def ensure_letter_saved(lid: int, db: AsyncSession) -> bool:
                     result = resp.json()
                     error_code = result.get("error", 0)
                     if error_code in (0, 4):
-                        break
+                        return True
                 except httpx.HTTPError:
                     continue
     except Exception:
         pass
-
-    # Wait for callback (2s). If it arrives — file is saved by callback handler.
-    try:
-        await asyncio.wait_for(event.wait(), timeout=2.0)
-        return True
-    except asyncio.TimeoutError:
-        # Callback didn't arrive. Give OnlyOffice a moment to finalize,
-        # then serve current file. Next download will get the updated version.
-        await asyncio.sleep(1.0)
-        return True
-    finally:
-        _forcesave_events.pop(lid, None)
+    return True
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -380,16 +363,8 @@ async def onlyoffice_callback(
             letter.pdf_path = None  # invalidate cached PDF
             await db.commit()
             log.info("Letter %s saved from OnlyOffice (%d bytes)", lid, len(resp.content))
-
-            # Signal forcesave completion if someone is waiting
-            if lid in _forcesave_events:
-                _forcesave_events[lid].set()
         except Exception as exc:
             log.error("Failed to save OnlyOffice document for letter %s: %s", lid, exc)
-
-            # Signal error for forcesave waiters
-            if lid in _forcesave_events:
-                _forcesave_events[lid].set()
             return {"error": 1}
 
     return {"error": 0}

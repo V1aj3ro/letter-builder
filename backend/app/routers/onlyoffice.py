@@ -54,19 +54,20 @@ _forcesave_events: dict[int, asyncio.Event] = {}
 
 async def ensure_letter_saved(lid: int, db: AsyncSession) -> bool:
     """
-    Send forcesave to OnlyOffice and wait for the callback to complete.
-    The callback downloads the file from OnlyOffice and saves it locally.
-    This is the most reliable approach per OnlyOffice official docs.
+    Send forcesave to OnlyOffice and wait briefly for callback.
+    If callback arrives — file is saved. If not, wait 1s and serve current file.
     """
     doc_key = _active_doc_keys.get(lid)
     if not doc_key:
-        return False  # No active editing session
+        return True  # No active session — serve what we have
 
-    # Send forcesave command
     payload = {"c": "forcesave", "key": doc_key}
     jwt_token = _jwt_sign(payload)
     base_server = ONLYOFFICE_SERVER.rstrip("/")
     endpoints = [f"{base_server}/command", f"{base_server}/coauthoring/CommandService.ashx"]
+
+    event = asyncio.Event()
+    _forcesave_events[lid] = event
 
     try:
         async with httpx.AsyncClient(timeout=10) as client:
@@ -77,26 +78,22 @@ async def ensure_letter_saved(lid: int, db: AsyncSession) -> bool:
                     resp.raise_for_status()
                     result = resp.json()
                     error_code = result.get("error", 0)
-                    if error_code in (0, 4):  # 0 = accepted, 4 = no changes
+                    if error_code in (0, 4):
                         break
-                    log.warning("ensure_letter_saved: OnlyOffice error %d for letter %s", error_code, lid)
                 except httpx.HTTPError:
                     continue
-            else:
-                log.warning("ensure_letter_saved: all Command Service endpoints failed for letter %s", lid)
-    except Exception as exc:
-        log.warning("ensure_letter_saved command error for letter %s: %s", lid, exc)
+    except Exception:
+        pass
 
-    # Wait for callback to complete (status 6)
-    event = asyncio.Event()
-    _forcesave_events[lid] = event
+    # Wait for callback (2s). If it arrives — file is saved by callback handler.
     try:
-        await asyncio.wait_for(event.wait(), timeout=10.0)
-        log.info("ensure_letter_saved: callback completed for letter %s", lid)
+        await asyncio.wait_for(event.wait(), timeout=2.0)
         return True
     except asyncio.TimeoutError:
-        log.warning("ensure_letter_saved: callback timeout for letter %s", lid)
-        return False
+        # Callback didn't arrive. Give OnlyOffice a moment to finalize,
+        # then serve current file. Next download will get the updated version.
+        await asyncio.sleep(1.0)
+        return True
     finally:
         _forcesave_events.pop(lid, None)
 

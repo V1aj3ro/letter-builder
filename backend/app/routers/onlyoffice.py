@@ -61,7 +61,7 @@ async def ensure_letter_saved(lid: int, db: AsyncSession) -> bool:
 
     payload = {"c": "forcesave", "key": doc_key}
     jwt_token = _jwt_sign(payload)
-    base_server = ONLYOFFICE_SERVER.rstrip("/")
+    base_server = (ONLYOFFICE_INTERNAL_URL or ONLYOFFICE_SERVER).rstrip("/")
     endpoints = [f"{base_server}/command", f"{base_server}/coauthoring/CommandService.ashx"]
 
     try:

@@ -68,6 +68,12 @@ jobs:
                 '${{ secrets.ONLYOFFICE_JWT_SECRET }}' > .env
             fi
 
+            # Always sync ONLYOFFICE_INTERNAL_URL from secret (needed for hairpin NAT bypass)
+            if [ -n '${{ secrets.ONLYOFFICE_INTERNAL_URL }}' ]; then
+              sed -i '/^ONLYOFFICE_INTERNAL_URL=/d' .env
+              echo 'ONLYOFFICE_INTERNAL_URL=${{ secrets.ONLYOFFICE_INTERNAL_URL }}' >> .env
+            fi
+
             BUILD="${{ steps.changes.outputs.services }}"
             if [ -n "$BUILD" ]; then
               docker compose build $BUILD

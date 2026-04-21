@@ -41,6 +41,7 @@ log = logging.getLogger(__name__)
 router = APIRouter()
 
 ONLYOFFICE_SERVER = os.environ.get("ONLYOFFICE_SERVER", "https://office.demo.corpcore.ru")
+ONLYOFFICE_INTERNAL_URL = os.environ.get("ONLYOFFICE_INTERNAL_URL", "").rstrip("/")
 APP_PUBLIC_URL = os.environ.get("APP_PUBLIC_URL", "").rstrip("/")
 _DL_SECRET = os.environ.get("SECRET_KEY", "changeme")
 ONLYOFFICE_JWT_SECRET = os.environ.get("ONLYOFFICE_JWT_SECRET", "")
@@ -351,6 +352,9 @@ async def onlyoffice_callback(
             output_path = os.path.join(out_dir, f"letter_{letter.number}.docx")
 
         try:
+            # Rewrite download URL for internal access (e.g. when hairpin NAT is unavailable)
+            if ONLYOFFICE_INTERNAL_URL and download_url.startswith(ONLYOFFICE_SERVER):
+                download_url = ONLYOFFICE_INTERNAL_URL + download_url[len(ONLYOFFICE_SERVER):]
             async with httpx.AsyncClient(timeout=30) as client:
                 resp = await client.get(download_url)
                 resp.raise_for_status()

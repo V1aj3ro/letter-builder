@@ -28,11 +28,17 @@ services:
       APP_PUBLIC_URL: ${APP_PUBLIC_URL:-}
       # JWT secret configured in OnlyOffice (leave empty if JWT is disabled)
       ONLYOFFICE_JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:-}
+      # Internal URL for OnlyOffice (HTTP) to bypass hairpin NAT.
+      # Set to e.g. http://172.18.0.9 when HTTPS is unavailable from inside Docker.
+      ONLYOFFICE_INTERNAL_URL: ${ONLYOFFICE_INTERNAL_URL:-}
     volumes:
       - letters_uploads:/app/uploads
     depends_on:
       letters-db:
         condition: service_healthy
+    networks:
+      - default
+      - proxy
 
   letters-frontend:
     build: ./frontend
@@ -45,3 +51,8 @@ services:
 volumes:
   letters_db_data:
   letters_uploads:
+
+networks:
+  default:
+  proxy:
+    external: true
